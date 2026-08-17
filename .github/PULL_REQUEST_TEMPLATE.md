@@ -18,6 +18,21 @@ Complete this section when the change affects server resolution, installation, c
 - Negative tests:
 - Platform evidence:
 
+## Suggested release impact
+
+Choose the net public impact. This records release intent; it does not change the package version or authorize publication.
+
+- [ ] `none`: internal work with no public behavior or contract change.
+- [ ] `patch`: backward-compatible correction to published behavior.
+- [ ] `minor`: backward-compatible capability.
+- [ ] `major`: change that requires existing users to adapt.
+
+- Public artifact and supported line:
+- Observable behavior and compatibility:
+- User-facing changelog summary:
+
+Maintainers verify the published baseline, combine pending changes, and decide separately whether to release now or accumulate them.
+
 ## Review notes
 
 List compatibility risks, intentional limitations, and follow-up work. Do not hide incomplete behavior behind a passing test.
