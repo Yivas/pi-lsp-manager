@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+.cache/
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+desktop.ini

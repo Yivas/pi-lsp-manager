@@ -1,0 +1,65 @@
+name: Bug report
+description: Report a reproducible defect
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Search existing issues before reporting. Use private vulnerability reporting for undisclosed security problems.
+
+        Remove credentials, tokens, prompts, file contents, private paths, identifiers, and active configuration values.
+  - type: input
+    id: revision
+    attributes:
+      label: Version or commit
+      description: Provide the installed version or commit hash.
+      placeholder: main at abc1234
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Include Pi, Node.js, operating system, and architecture versions.
+      placeholder: Pi 0.x, Node.js 24.x, Windows 11 x64
+    validations:
+      required: true
+  - type: input
+    id: language-server
+    attributes:
+      label: File type and language server
+      placeholder: .ts with typescript-language-server
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide the smallest sanitized sequence that reproduces the defect.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmation
+      options:
+        - label: I searched existing issues.
+          required: true
+        - label: I reproduced this on the revision reported above.
+          required: true
+        - label: I removed private and sensitive data.
+          required: true

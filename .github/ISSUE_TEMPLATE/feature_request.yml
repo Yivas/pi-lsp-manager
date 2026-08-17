@@ -1,0 +1,47 @@
+name: Feature request
+description: Propose a focused capability or contract change
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Explain the user problem before proposing an implementation. Changes to installation, trust, commands, configuration, or platform support need explicit security analysis.
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: What cannot be done safely or efficiently today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the observable contract rather than internal code.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Which existing workflow or configuration could solve this instead?
+    validations:
+      required: true
+  - type: textarea
+    id: security
+    attributes:
+      label: Security and compatibility impact
+      description: Cover commands, network, filesystem, project trust, cancellation, and supported platforms when relevant.
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmation
+      options:
+        - label: I searched existing issues and proposals.
+          required: true
+        - label: This request does not contain private or sensitive data.
+          required: true
