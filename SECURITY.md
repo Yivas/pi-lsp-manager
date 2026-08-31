@@ -2,7 +2,12 @@
 
 ## Supported versions
 
-The project has no published release yet. Security fixes currently target the latest commit on the default branch. This statement will be replaced by a version table before the first release.
+| Version or line | Support status |
+|-|-|
+| Development `main` | Security fixes target the latest commit on a best-effort basis |
+| Published releases | None exist yet |
+
+The table will list maintained release lines after the first publication.
 
 ## Report a vulnerability
 

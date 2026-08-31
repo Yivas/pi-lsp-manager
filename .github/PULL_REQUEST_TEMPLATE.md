@@ -20,7 +20,7 @@ Complete this section when the change affects server resolution, installation, c
 
 ## Suggested release impact
 
-Choose the net public impact. This records release intent; it does not change the package version or authorize publication.
+Choose exactly one classification for the net public impact. This records release intent; it does not change the package version or authorize publication.
 
 - [ ] `none`: internal work with no public behavior or contract change.
 - [ ] `patch`: backward-compatible correction to published behavior.

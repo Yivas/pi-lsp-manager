@@ -6,6 +6,10 @@
 
 The project is in design. There is no installable package, supported release, or stable configuration contract yet.
 
+## Project mode
+
+This is an open source collaborative project licensed under MIT. It accepts focused issues and pull requests. Undisclosed vulnerabilities must use the private reporting channel described in [SECURITY.md](SECURITY.md).
+
 ## Intended behavior
 
 1. An LSP tool receives a concrete file.
