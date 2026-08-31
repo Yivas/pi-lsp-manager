@@ -11,7 +11,11 @@ import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { describe, expect, it } from "vitest";
 import { meetsMinimumNodeVersion } from "../../src/host/version.js";
-import registerExtension from "../../src/index.js";
+import {
+	createShutdownHandler,
+	registerInstallCoordinator,
+	default as registerExtension,
+} from "../../src/index.js";
 
 describe("Pi host baseline", () => {
 	it("compares the exact supported Node baseline", () => {
@@ -40,15 +44,28 @@ describe("Pi host baseline", () => {
 		expect(typeof Type.Object).toBe("function");
 	});
 
-	it("registers only the idempotent shutdown seam", () => {
-		const handlers = new Map<string, () => void>();
+	it("constructs the idle coordinator and registers an awaitable shutdown seam", async () => {
+		const handlers = new Map<string, () => Promise<void>>();
 		registerExtension({
-			on(event: string, handler: () => void) {
+			on(event: string, handler: () => Promise<void>) {
 				handlers.set(event, handler);
 			},
 		} as never);
 		expect([...handlers.keys()]).toEqual(["session_shutdown"]);
-		handlers.get("session_shutdown")?.();
-		handlers.get("session_shutdown")?.();
+		const shutdown = handlers.get("session_shutdown");
+		if (!shutdown) throw new Error("Shutdown handler is required.");
+		await Promise.all([shutdown(), shutdown()]);
+	});
+
+	it("awaits an installed coordinator shutdown exactly once", async () => {
+		let calls = 0;
+		registerInstallCoordinator({
+			shutdown: async () => {
+				calls += 1;
+			},
+		} as never);
+		const shutdown = createShutdownHandler();
+		await Promise.all([shutdown(), shutdown()]);
+		expect(calls).toBe(1);
 	});
 });

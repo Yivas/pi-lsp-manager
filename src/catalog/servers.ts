@@ -15,7 +15,7 @@ export const DEFAULT_SERVERS: readonly ServerDefinition[] = [
 		args: ["--stdio"],
 		priority: 100,
 		autoInstall: true,
-		admission: "candidate",
+		admission: "auto-installable",
 		manualHelp:
 			"Install typescript-language-server and typescript, then retry.",
 	},
