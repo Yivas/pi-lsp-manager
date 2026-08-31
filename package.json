@@ -1,0 +1,57 @@
+{
+  "name": "pi-lsp-manager",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A policy-controlled language server manager for Pi.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Yivas/pi-lsp-manager.git"
+  },
+  "keywords": [
+    "pi-package",
+    "language-server",
+    "lsp"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
+  "scripts": {
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "pack:check": "npm pack --dry-run"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "dependencies": {
+    "vscode-jsonrpc": "9.0.2"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-ai": "0.84.1",
+    "@earendil-works/pi-coding-agent": "0.84.1",
+    "@types/node": "24.5.2",
+    "@biomejs/biome": "2.2.4",
+    "typebox": "1.0.26",
+    "typescript": "5.9.2",
+    "vitest": "3.2.7"
+  }
+}
