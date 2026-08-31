@@ -4,10 +4,16 @@ Describe the user problem and the observable behavior changed by this pull reque
 
 ## Validation
 
-- [ ] I added or updated focused tests.
-- [ ] I ran every applicable repository command.
-- [ ] I updated affected public documentation.
-- [ ] I checked that no private paths, prompts, credentials, logs, or file contents are included.
+- [ ] I added or updated focused tests, or marked `N/A` below with a reason for documentation/design work.
+- [ ] I ran every applicable repository command, or marked `N/A` below with a reason for documentation/design work.
+- [ ] I updated affected public documentation, or marked `N/A` below with a reason.
+- [ ] I checked that no private paths, prompts, credentials, identifiers, active configuration values, logs, or file contents are included.
+
+### N/A reasons (documentation/design only)
+
+- Tests:
+- Repository commands:
+- Documentation:
 
 ## Installation and trust
 
@@ -16,17 +22,13 @@ Complete this section when the change affects server resolution, installation, c
 - Policy and trust boundary:
 - Failure and cancellation behavior:
 - Negative tests:
-- Platform evidence:
+- Platform evidence (OS/version, architecture, Pi/Node, server version, fixture, and exercised capabilities):
 
 ## Suggested release impact
 
 Choose exactly one classification for the net public impact. This records release intent; it does not change the package version or authorize publication.
 
-- [ ] `none`: internal work with no public behavior or contract change.
-- [ ] `patch`: backward-compatible correction to published behavior.
-- [ ] `minor`: backward-compatible capability.
-- [ ] `major`: change that requires existing users to adapt.
-
+- Release impact (`none`, `patch`, `minor`, or `major`; choose one):
 - Public artifact and supported line:
 - Observable behavior and compatibility:
 - User-facing changelog summary:

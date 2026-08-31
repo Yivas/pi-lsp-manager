@@ -7,14 +7,14 @@ body:
   - type: markdown
     attributes:
       value: |
-        Search existing issues before reporting. Use private vulnerability reporting for undisclosed security problems.
+        Search existing issues before reporting. Use the [security policy](https://github.com/Yivas/pi-lsp-manager/blob/main/SECURITY.md) and private vulnerability reporting for undisclosed security problems.
 
         Remove credentials, tokens, prompts, file contents, private paths, identifiers, and active configuration values.
   - type: input
     id: revision
     attributes:
       label: Version or commit
-      description: Provide the installed version or commit hash.
+      description: Provide the installed version or commit hash. Use `N/A (documentation/design)` when no executable behavior exists.
       placeholder: main at abc1234
     validations:
       required: true
@@ -22,7 +22,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Include Pi, Node.js, operating system, and architecture versions.
+      description: Include Pi, Node.js, operating system, and architecture versions. Use `N/A (documentation/design)` for a non-runtime report.
       placeholder: Pi 0.x, Node.js 24.x, Windows 11 x64
     validations:
       required: true
@@ -30,7 +30,7 @@ body:
     id: language-server
     attributes:
       label: File type and language server
-      placeholder: .ts with typescript-language-server
+      placeholder: .ts with typescript-language-server, or N/A (documentation/design)
     validations:
       required: true
   - type: textarea
