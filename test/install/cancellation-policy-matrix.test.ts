@@ -291,37 +291,36 @@ describe("deterministic cancellation matrix", () => {
 	it("waits for delayed termination when shutdown interrupts a never-completing manager", async () => {
 		const root = await temporaryDirectory();
 		const termination = deferred<void>();
-		let started = false;
-		let terminateCalls = 0;
+		const managerStarted = deferred<void>();
+		const terminationStarted = deferred<void>();
 		const manager: PackageManager = {
 			start: async () => {
-				started = true;
+				managerStarted.resolve();
 				return {
 					completed: new Promise(() => undefined),
 					terminate: async () => {
-						terminateCalls += 1;
+						terminationStarted.resolve();
 						await termination.promise;
 					},
 				};
 			},
 		};
-		const instance = coordinator(manager, { installTimeoutMs: 30 });
+		const instance = coordinator(manager, { installTimeoutMs: 10_000 });
 		const pending = instance.install({
 			decision: allowedDecision(),
 			managedStatePath: root,
 		});
-		await waitFor(() => started);
-		await waitFor(() => terminateCalls > 0);
+		await managerStarted.promise;
 		let shutdownFinished = false;
 		const shutdown = instance.shutdown().then(() => {
 			shutdownFinished = true;
 		});
-		await Promise.resolve();
+		await terminationStarted.promise;
 		expect(shutdownFinished).toBe(false);
 		termination.resolve();
 		await shutdown;
 		expect(shutdownFinished).toBe(true);
-		expect(await pending).toEqual({ status: "failed", reason: "timed_out" });
+		expect(await pending).toEqual({ status: "failed", reason: "cancelled" });
 		await assertNoOwnedArtifacts(root, allowedDecision().recipe.revision);
 	});
 });

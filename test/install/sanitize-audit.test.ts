@@ -29,6 +29,12 @@ describe("sanitization", () => {
 			'rer abc.def\n{"token":"secret"}\u001b[31m /home/alice/a C:\\Users\\alice\\x',
 		);
 		const value = output.value();
+		expect(sanitizeText("GITHUB_TOKEN=super-secret")).not.toContain(
+			"super-secret",
+		);
+		expect(sanitizeText("AWS_SECRET_ACCESS_KEY=very-secret")).not.toContain(
+			"very-secret",
+		);
 		expect(value).not.toContain("abc.def");
 		expect(value).not.toContain("secret");
 		expect(value).not.toContain("alice");

@@ -14,6 +14,7 @@ import { meetsMinimumNodeVersion } from "../../src/host/version.js";
 import {
 	createShutdownHandler,
 	registerInstallCoordinator,
+	registerRuntimePool,
 	default as registerExtension,
 } from "../../src/index.js";
 
@@ -57,15 +58,27 @@ describe("Pi host baseline", () => {
 		await Promise.all([shutdown(), shutdown()]);
 	});
 
-	it("awaits an installed coordinator shutdown exactly once", async () => {
-		let calls = 0;
-		registerInstallCoordinator({
-			shutdown: async () => {
-				calls += 1;
-			},
-		} as never);
-		const shutdown = createShutdownHandler();
-		await Promise.all([shutdown(), shutdown()]);
-		expect(calls).toBe(1);
+	it("awaits installed resources exactly once for every host shutdown reason", async () => {
+		for (const reason of ["quit", "reload", "new", "resume", "fork"] as const) {
+			let coordinatorCalls = 0;
+			let poolCalls = 0;
+			registerInstallCoordinator({
+				shutdown: async () => {
+					coordinatorCalls += 1;
+				},
+			} as never);
+			registerRuntimePool({
+				shutdown: async () => {
+					poolCalls += 1;
+				},
+			} as never);
+			const shutdown = createShutdownHandler();
+			await Promise.all([
+				shutdown({ reason } as never),
+				shutdown({ reason } as never),
+			]);
+			expect(coordinatorCalls, reason).toBe(1);
+			expect(poolCalls, reason).toBe(1);
+		}
 	});
 });

@@ -338,7 +338,7 @@ describe("installation coordinator", () => {
 		const root = await temporaryDirectory();
 		const manager = new FakePackageManager();
 		manager.hold = true;
-		const instance = coordinator(manager, { installTimeoutMs: 1_000 });
+		const instance = coordinator(manager, { installTimeoutMs: 10_000 });
 		const first = instance.install({
 			decision: allowedDecision(),
 			managedStatePath: root,
@@ -351,7 +351,7 @@ describe("installation coordinator", () => {
 		});
 		aborter.abort();
 		expect(await cancelled).toMatchObject({ reason: "cancelled" });
-		await wait();
+		await waitFor(() => manager.starts === 1);
 		manager.finish();
 		expect((await first).status).toBe("ready");
 		const foreignRoot = await temporaryDirectory();

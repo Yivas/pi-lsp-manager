@@ -6,7 +6,7 @@ const PRIVATE_PATH =
 const URL_CREDENTIALS = /([a-z][a-z0-9+.-]*:\/\/)[^\s@/:]+(?::[^\s@/]*)?@/gi;
 const BEARER = /\b(?:authorization\s*:\s*)?bearer\s+[A-Za-z0-9._~+/-]+=*/gi;
 const SECRET_ASSIGNMENT =
-	/\b(?:authorization|token|password|secret|api[_-]?key|proxy)\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s,;}]+)/gi;
+	/\b(?:[a-z0-9_-]*?(?:authorization|token|password|secret|api[_-]?key|proxy)[a-z0-9_-]*)\s*[=:]\s*(?:"[^"]*"|'[^']*'|[^\s,;}]+)/gi;
 const JSON_SECRET =
 	/("(?:authorization|token|password|secret|api[_-]?key|proxy)"\s*:\s*)"(?:[^"\\]|\\.)*"/gi;
 
