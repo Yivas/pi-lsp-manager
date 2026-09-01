@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-These changes are present on `main` and are not part of the published npm `0.1.0` package. No release version has been approved.
+## 0.2.0 - 2026-09-01
 
 ### Added
 

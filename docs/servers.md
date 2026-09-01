@@ -1,7 +1,5 @@
 # Language servers
 
-> The manual catalog and route behavior described below are Unreleased source/main capabilities. npm `0.1.0` contains only the published TypeScript route and compatibility rows.
-
 The catalog describes routing metadata. It does not download a server, run a probe, or establish compatibility. A route is used only after the project is trusted and the effective configuration selects it.
 
 ## Admission states
@@ -81,9 +79,9 @@ A row is added only after the pinned GitHub Actions job succeeds.
 
 | Operating system | Architecture | Node | Pi | Evidence |
 |-|-|-|-|-|
-| Windows Server 2022 runner | x64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33514314846) |
-| macOS 14 runner | arm64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33514314846) |
-| Ubuntu 24.04 runner | x64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33514314846) |
+| Windows Server 2022 runner | x64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33569081533) |
+| macOS 14 runner | arm64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33569081533) |
+| Ubuntu 24.04 runner | x64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33569081533) |
 
 These rows describe the tested runners. They do not claim support for every Windows, macOS, or Linux release.
 

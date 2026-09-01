@@ -1,7 +1,5 @@
 # Troubleshooting
 
-> Batch diagnostics, source fixes, manual routes, and expanded status are Unreleased source/main capabilities. npm `0.1.0` exposes the published single-file v1 tools.
-
 Start with `/lsp status`, `/lsp policy`, and `lsp_status`. These surfaces report stable state without exposing private paths, command arguments, or route environment values.
 
 ## Stable tool error codes

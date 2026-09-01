@@ -2,7 +2,7 @@
 
 `pi-lsp-manager` works without a configuration file. Defaults enable the built-in TypeScript Language Server route, automatic installation, post-edit diagnostics, and the `auto` network policy for the fixed recipe.
 
-The current npm release is `0.1.0`. The manual routes, batch diagnostics, source actions, and status details described as **Unreleased** are in `main` and are not part of the published npm package until a release is approved.
+Version `0.2.0` includes the manual routes, batch diagnostics, source actions, and status details documented here.
 
 ## File locations
 

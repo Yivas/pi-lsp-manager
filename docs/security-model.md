@@ -1,7 +1,5 @@
 # Security model
 
-> Manual routes, batch discovery, source fixes, and expanded status are Unreleased source/main capabilities. npm `0.1.0` retains the published v1 boundary.
-
 Language servers are local programs with the same operating-system permissions as Pi. They can read project files and may execute language-specific tooling. `pi-lsp-manager` narrows when those programs can be installed, started, and allowed to mutate files; it does not sandbox them.
 
 ## Trust boundary

@@ -1,6 +1,6 @@
 # Contributing
 
-`pi-lsp-manager` has a published `0.1.0` release and accepts focused issues, documentation changes, and pull requests. Discuss new installation recipes, configuration keys, tools, supported platforms, and trust behavior before implementation so the public contract and security boundary are clear.
+`pi-lsp-manager` has a published `0.2.0` release and accepts focused issues, documentation changes, and pull requests. Discuss new installation recipes, configuration keys, tools, supported platforms, and trust behavior before implementation so the public contract and security boundary are clear.
 
 ## Report a problem
 

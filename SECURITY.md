@@ -4,7 +4,8 @@
 
 | Version or line | Support status |
 |-|-|
-| `0.1.x` | Supported |
+| `0.2.x` | Supported |
+| `0.1.x` | Unsupported |
 | Development `main` | Security fixes target the latest commit on a best-effort basis |
 
 The supported line is tested only against the exact host and TypeScript rows in [Language servers](docs/servers.md). Those rows are compatibility evidence, not a promise to support every release of the listed operating systems.

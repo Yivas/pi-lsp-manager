@@ -6,9 +6,7 @@ It adds diagnostics, navigation, symbols, guarded rename, and guarded code-actio
 
 ## Status
 
-Version `0.1.0` is the first supported release line. The published package contains the v1 TypeScript Language Server route (`5.3.0` with TypeScript `5.9.3`) and its verified compatibility rows in [Language servers](docs/servers.md).
-
-The manual catalog, complete global routes, batch diagnostics, source-fix workflow, and expanded status fields described in this documentation are **Unreleased source/main capabilities**. They are not claimed to be present in npm `0.1.0`; no later release has been approved.
+Version `0.2.0` adds the manual catalog, complete global routes, batch diagnostics, source-fix workflow, and expanded status fields. TypeScript Language Server `5.3.0` with TypeScript `5.9.3` remains the only auto-installable and platform-tested route; compatibility claims are limited to the exact rows in [Language servers](docs/servers.md).
 
 ## How it works
 
@@ -25,10 +23,10 @@ A trusted project's configuration can only reduce the effective policy. An untru
 Install the published release:
 
 ```bash
-pi install npm:pi-lsp-manager@0.1.0
+pi install npm:pi-lsp-manager@0.2.0
 ```
 
-The command above installs the npm release, not the Unreleased source/main capabilities described below. Pi packages execute with full user permissions. Review the source and [security model](docs/security-model.md) before installation.
+Pi packages execute with full user permissions. Review the source and [security model](docs/security-model.md) before installation.
 
 After Pi trusts the project, call an LSP tool with a workspace-relative file. For example:
 
@@ -36,7 +34,7 @@ After Pi trusts the project, call an LSP tool with a workspace-relative file. Fo
 lsp_diagnostics({"filePath":"src/index.ts"})
 ```
 
-The legacy `filePath` form returns diagnostics for one file. The Unreleased batch form can scan the trusted workspace or selected paths:
+The legacy `filePath` form returns diagnostics for one file. The batch form can scan the trusted workspace or selected paths:
 
 ```text
 lsp_diagnostics({"paths":["src","test"],"fileLimit":100,"limit":100})
