@@ -6,9 +6,11 @@ import { NodeLspRuntimeSession } from "../../src/protocol/process.js";
 import { RuntimePool } from "../../src/runtime/pool.js";
 import { definition } from "../../src/tools/definition.js";
 import { diagnostics } from "../../src/tools/diagnostics.js";
+import { fix } from "../../src/tools/fix.js";
 import { references } from "../../src/tools/references.js";
 import { rename } from "../../src/tools/rename.js";
 import { TrustedOperationService } from "../../src/tools/shared.js";
+import { CodeActionPreviews } from "../../src/tools/source-action.js";
 import { symbols } from "../../src/tools/symbols.js";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -35,6 +37,40 @@ const config: EffectiveConfig = {
 				"javascript",
 				"javascriptreact",
 			],
+			languageIdByExtension: {
+				".ts": "typescript",
+				".tsx": "typescriptreact",
+				".js": "javascript",
+				".jsx": "javascriptreact",
+				".mjs": "javascript",
+				".cjs": "javascript",
+			},
+			admission: "tested",
+			manualHelp: "Install TypeScript Language Server 5.3.0.",
+		},
+		"typescript-secondary": {
+			id: "typescript-secondary",
+			enabled: true,
+			autoInstall: false,
+			priority: 90,
+			command: process.execPath,
+			args: [cli, "--stdio"],
+			extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"],
+			roles: ["diagnostics"],
+			languageIds: [
+				"typescript",
+				"typescriptreact",
+				"javascript",
+				"javascriptreact",
+			],
+			languageIdByExtension: {
+				".ts": "typescript",
+				".tsx": "typescriptreact",
+				".js": "javascript",
+				".jsx": "javascriptreact",
+				".mjs": "javascript",
+				".cjs": "javascript",
+			},
 			admission: "tested",
 			manualHelp: "Install TypeScript Language Server 5.3.0.",
 		},
@@ -73,8 +109,16 @@ describe.runIf(runReal)("TypeScript Language Server 5.3.0", () => {
 		const invalid = join(workspace, "invalid.ts");
 		const clean = join(workspace, "clean.ts");
 		const semantic = join(workspace, "semantic.ts");
+		const importsPreview = join(workspace, "imports-preview.ts");
+		const importsWrite = join(workspace, "imports-write.ts");
 		await writeFile(invalid, "const invalid: string = 1;\n", "utf8");
 		await writeFile(clean, "const clean: string = 'ok';\n", "utf8");
+		await writeFile(join(workspace, "a.ts"), "export const a = 1;\n", "utf8");
+		await writeFile(join(workspace, "z.ts"), "export const z = 2;\n", "utf8");
+		const unorderedImports =
+			"import { z } from './z.js';\nimport { a } from './a.js';\nexport const sum = z + a;\n";
+		await writeFile(importsPreview, unorderedImports, "utf8");
+		await writeFile(importsWrite, unorderedImports, "utf8");
 		await writeFile(
 			semantic,
 			"export const target = 1;\nexport const use = target;\n",
@@ -118,6 +162,20 @@ describe.runIf(runReal)("TypeScript Language Server 5.3.0", () => {
 			await diagnostics(service, ctx, { filePath: clean }, undefined),
 		).diagnostics as unknown[];
 		expect(cleanDiagnostics).toEqual([]);
+		const batch = value(
+			await diagnostics(
+				service,
+				ctx,
+				{
+					paths: [invalid, clean],
+					servers: ["typescript", "typescript-secondary"],
+					fileLimit: 2,
+				},
+				undefined,
+			),
+		);
+		expect(batch).toMatchObject({ filesScanned: 2, filesChecked: 2 });
+		expect(batch.serversUsed).toEqual(["typescript", "typescript-secondary"]);
 		expect(
 			value(
 				await definition(
@@ -169,7 +227,37 @@ describe.runIf(runReal)("TypeScript Language Server 5.3.0", () => {
 			).mutation,
 		).toMatchObject({ status: "applied" });
 		expect(await readFile(semantic, "utf8")).toContain("renamedTarget");
-		expect(starts).toBe(1);
-		expect(pool.size()).toBe(1);
+		const previews = new CodeActionPreviews();
+		const sourceFixPreview = value(
+			await fix(
+				service,
+				previews,
+				ctx,
+				{ filePath: importsPreview, kind: "source.organizeImports" },
+				undefined,
+			),
+		);
+		expect(sourceFixPreview.previewOnly).toBe(true);
+		expect(sourceFixPreview.codeActions).toHaveLength(1);
+		expect(
+			value(
+				await fix(
+					service,
+					previews,
+					ctx,
+					{
+						filePath: importsWrite,
+						kind: "source.organizeImports",
+						write: true,
+					},
+					undefined,
+				),
+			).mutation,
+		).toMatchObject({ status: "applied" });
+		expect(await readFile(importsWrite, "utf8")).toBe(
+			"import { a } from './a.js';\nimport { z } from './z.js';\nexport const sum = z + a;\n",
+		);
+		expect(starts).toBe(2);
+		expect(pool.size()).toBe(2);
 	}, 90_000);
 });

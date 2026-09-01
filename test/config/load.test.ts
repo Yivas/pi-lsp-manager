@@ -95,12 +95,79 @@ describe("strict configuration parsing", () => {
 		expect(parseConfigText(text, layer).ok).toBe(false);
 	});
 
-	it("accepts documented global network and post-edit controls", () => {
-		for (const config of [
-			{ network: "auto", postEditDiagnostics: true },
-			{ network: "offline", postEditDiagnostics: false },
+	it("accepts bounded global diagnostic controls but rejects project escalation", () => {
+		const global = configText({
+			diagnostics: {
+				pushGraceMs: 2_000,
+				settleMs: 100,
+				pullGraceMs: 300,
+				requestTimeoutMs: 10_000,
+				excludeDirectories: ["vendor", ".cache"],
+			},
+		});
+		expect(parseConfigText(global, "global").ok).toBe(true);
+		expect(
+			parseConfigText(
+				configText({ diagnostics: { pushGraceMs: 99_999_999 } }),
+				"global",
+			).ok,
+		).toBe(false);
+		expect(parseConfigText(global, "project").ok).toBe(true);
+	});
+
+	it("requires a complete, non-empty global route for a new server", () => {
+		for (const server of [
+			{
+				command: "custom-ls",
+				args: [],
+				extensions: [],
+				roles: ["diagnostics"],
+				languageIds: ["custom"],
+			},
+			{
+				command: "custom-ls",
+				args: [],
+				extensions: [".custom"],
+				roles: [],
+				languageIds: ["custom"],
+			},
+			{
+				command: "custom-ls",
+				args: [],
+				extensions: [".custom"],
+				roles: ["diagnostics"],
+				languageIds: [],
+			},
 		]) {
-			expect(parseConfigText(configText(config), "global").ok).toBe(true);
+			expect(
+				parseConfigText(configText({ servers: { custom: server } }), "global")
+					.ok,
+			).toBe(false);
+		}
+	});
+
+	it("rejects uppercase configured extensions and mapping keys", () => {
+		for (const server of [
+			{
+				command: "custom-ls",
+				args: [],
+				extensions: [".TS"],
+				roles: ["diagnostics"],
+				languageIds: ["typescript"],
+			},
+			{
+				command: "custom-ls",
+				args: [],
+				extensions: [".ts"],
+				roles: ["diagnostics"],
+				languageIds: ["typescript"],
+				languageIdByExtension: { ".TS": "typescript" },
+			},
+		]) {
+			expect(
+				parseConfigText(configText({ servers: { custom: server } }), "global")
+					.ok,
+			).toBe(false);
 		}
 	});
 
@@ -144,6 +211,37 @@ describe("strict configuration parsing", () => {
 });
 
 describe("configuration loading and restrictive merge", () => {
+	it("normalizes legacy catalog launch fields into an effective route", () => {
+		const config = createDefaultConfig([
+			{
+				id: "legacy",
+				roles: ["diagnostics"],
+				extensions: [".legacy"],
+				languageIds: ["legacy"],
+				command: "legacy-ls",
+				args: ["--stdio"],
+				env: { MODE: "safe" },
+				initialization: { enabled: true },
+				priority: 1,
+				autoInstall: false,
+				admission: "candidate",
+				diagnostics: {
+					pushGraceMs: 5_000,
+					settleMs: 50,
+					pullGraceMs: 250,
+				},
+				compatibility: [],
+				manualHelp: "Install manually.",
+			},
+		]);
+		expect(config.servers.legacy?.route).toEqual({
+			command: "legacy-ls",
+			args: ["--stdio"],
+			env: { MODE: "safe" },
+			initialization: { enabled: true },
+		});
+	});
+
 	it("does not open project configuration before checking trust", async () => {
 		const reads: string[] = [];
 		const paths = getConfigPaths(cwd, agentDirectory, projectDirectory);
@@ -243,18 +341,88 @@ describe("configuration loading and restrictive merge", () => {
 		});
 		expect(result.globalLayer).toBe("valid");
 		expect(result.config.servers.typescript).toMatchObject({
-			command: "custom-tsls",
-			args: ["--stdio", "--trace"],
+			route: {
+				command: "custom-tsls",
+				args: ["--stdio", "--trace"],
+				env: { MODE: "test" },
+				initialization: { enabled: true },
+			},
 			extensions: [".custom"],
 			roles: ["diagnostics"],
 			languageIds: ["custom"],
-			env: { MODE: "test" },
-			initialization: { enabled: true },
 		});
 		expect(result.config.servers.custom).toMatchObject({
 			autoInstall: false,
-			admission: "detected",
+			admission: "candidate",
 		});
+	});
+
+	it("rejects language mappings outside the effective extensions and language IDs", async () => {
+		const paths = getConfigPaths(cwd, agentDirectory, projectDirectory);
+		for (const languageIdByExtension of [
+			{ ".other": "custom" },
+			{ ".custom": "other" },
+		]) {
+			const result = await load({
+				[paths.globalConfigPath]: configText({
+					servers: {
+						custom: {
+							command: "custom-ls",
+							args: [],
+							extensions: [".custom"],
+							roles: ["diagnostics"],
+							languageIds: ["custom"],
+							languageIdByExtension,
+						},
+					},
+				}),
+			});
+			expect(result.globalLayer).toBe("invalid");
+		}
+	});
+
+	it("merges global diagnostic timing without allowing a project layer to add work", async () => {
+		const paths = getConfigPaths(cwd, agentDirectory, projectDirectory);
+		const result = await load({
+			[paths.globalConfigPath]: configText({
+				diagnostics: { pushGraceMs: 2_000, excludeDirectories: ["vendor"] },
+			}),
+			[paths.projectConfigPath]: configText({
+				diagnostics: { pushGraceMs: 5_000 },
+			}),
+		});
+		expect(result.globalLayer).toBe("valid");
+		expect(result.projectLayer).toBe("invalid");
+		expect(result.config.diagnostics).toMatchObject({
+			pushGraceMs: 2_000,
+			excludeDirectories: ["vendor"],
+		});
+		expect(result.config.servers.typescript?.diagnostics?.pushGraceMs).toBe(
+			2_000,
+		);
+
+		const reduced = await load({
+			[paths.projectConfigPath]: configText({
+				diagnostics: { pushGraceMs: 1_000 },
+			}),
+		});
+		expect(reduced.projectLayer).toBe("valid");
+		expect(reduced.config.servers.typescript?.diagnostics?.pushGraceMs).toBe(
+			1_000,
+		);
+
+		const aboveServerLimit = await load({
+			[paths.globalConfigPath]: configText({
+				servers: { typescript: { diagnostics: { settleMs: 25 } } },
+			}),
+			[paths.projectConfigPath]: configText({
+				diagnostics: { settleMs: 40 },
+			}),
+		});
+		expect(aboveServerLimit.projectLayer).toBe("invalid");
+		expect(
+			aboveServerLimit.config.servers.typescript?.diagnostics?.settleMs,
+		).toBe(25);
 	});
 
 	it("rejects every forbidden project server field", async () => {

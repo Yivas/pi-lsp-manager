@@ -59,7 +59,10 @@ export class LspSession {
 				{ uri: rootUri, name: "workspace" },
 			],
 			capabilities: clientCapabilities(),
-			initializationOptions: this.options.server.initialization ?? {},
+			initializationOptions:
+				this.options.server.route?.initialization ??
+				this.options.server.initialization ??
+				{},
 		});
 		if (!result.ok) return false;
 		this.capabilities = result.value.capabilities ?? {};

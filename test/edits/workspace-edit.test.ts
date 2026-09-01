@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import {
+	mkdtemp,
+	readFile,
+	realpath,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -188,6 +195,22 @@ describe("validated workspace edits", () => {
 					versions: new Map([[uri, 1]]),
 				})),
 		).toBeUndefined();
+		const equivalentUri = uri.replace("first.ts", "%66irst.ts");
+		const equivalentVersion = normalizeWorkspaceEdit({
+			documentChanges: [
+				{
+					textDocument: { uri: equivalentUri, version: 2 },
+					edits: [{ range: range(0, 2, 3), newText: "x" }],
+				},
+			],
+		});
+		expect(
+			equivalentVersion &&
+				(await validateWorkspaceEdit(equivalentVersion, {
+					workspacePath: workspace,
+					expectedFileVersions: new Map([[await realpath(first), 2]]),
+				})),
+		).toBeTruthy();
 		const missing = normalizeWorkspaceEdit({
 			changes: {
 				[pathToFileURL(join(workspace, "missing.ts")).href]: [

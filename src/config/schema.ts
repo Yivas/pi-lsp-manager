@@ -11,6 +11,8 @@ export const MAX_CONFIG_TEXT_LENGTH = 256 * 1024;
 export const MAX_STRING_LENGTH = 4_096;
 const MAX_ARRAY_LENGTH = 128;
 const MAX_PRIORITY = 10_000;
+const MAX_DIAGNOSTIC_MS = 60_000;
+const MIN_DIAGNOSTIC_MS = 1;
 
 export type ConfigLayer = "global" | "project";
 export type ConfigParseResult =
@@ -48,8 +50,60 @@ function isStringArray(value: unknown): value is string[] {
 function isRoleArray(value: unknown): value is ServerRole[] {
 	return (
 		Array.isArray(value) &&
+		value.length > 0 &&
 		value.length <= MAX_ARRAY_LENGTH &&
 		value.every((item) => SERVER_ROLES.includes(item as ServerRole))
+	);
+}
+
+function isTiming(value: unknown): value is number {
+	return (
+		typeof value === "number" &&
+		Number.isInteger(value) &&
+		value >= MIN_DIAGNOSTIC_MS &&
+		value <= MAX_DIAGNOSTIC_MS
+	);
+}
+
+function isDiagnosticConfig(value: unknown): boolean {
+	return (
+		isRecord(value) &&
+		hasOnlyKeys(value, [
+			"pushGraceMs",
+			"settleMs",
+			"pullGraceMs",
+			"requestTimeoutMs",
+			"excludeDirectories",
+		]) &&
+		(value.pushGraceMs === undefined || isTiming(value.pushGraceMs)) &&
+		(value.settleMs === undefined || isTiming(value.settleMs)) &&
+		(value.pullGraceMs === undefined || isTiming(value.pullGraceMs)) &&
+		(value.requestTimeoutMs === undefined ||
+			isTiming(value.requestTimeoutMs)) &&
+		(value.excludeDirectories === undefined ||
+			(isStringArray(value.excludeDirectories) &&
+				value.excludeDirectories.every(
+					(item) => !item.includes("/") && !item.includes("\\"),
+				)))
+	);
+}
+
+function isExtensionArray(value: unknown): value is string[] {
+	return (
+		isStringArray(value) &&
+		value.length > 0 &&
+		value.every((extension) => /^\.[a-z0-9][a-z0-9.-]*$/.test(extension))
+	);
+}
+
+function isLanguageIdByExtension(
+	value: unknown,
+): value is Record<string, string> {
+	return (
+		isStringRecord(value) &&
+		Object.keys(value).every((extension) =>
+			/^\.[a-z0-9][a-z0-9.-]*$/.test(extension),
+		)
 	);
 }
 
@@ -115,7 +169,9 @@ function parseGlobalServer(value: unknown): GlobalServerConfig | undefined {
 			"extensions",
 			"roles",
 			"languageIds",
+			"languageIdByExtension",
 			"initialization",
+			"diagnostics",
 		])
 	) {
 		return undefined;
@@ -128,11 +184,16 @@ function parseGlobalServer(value: unknown): GlobalServerConfig | undefined {
 		(value.command !== undefined && !isSafeString(value.command)) ||
 		(value.args !== undefined && !isStringArray(value.args)) ||
 		(value.env !== undefined && !isStringRecord(value.env)) ||
-		(value.extensions !== undefined && !isStringArray(value.extensions)) ||
+		(value.extensions !== undefined && !isExtensionArray(value.extensions)) ||
 		(value.roles !== undefined && !isRoleArray(value.roles)) ||
-		(value.languageIds !== undefined && !isStringArray(value.languageIds)) ||
+		(value.languageIds !== undefined &&
+			(!isStringArray(value.languageIds) || value.languageIds.length === 0)) ||
+		(value.languageIdByExtension !== undefined &&
+			!isLanguageIdByExtension(value.languageIdByExtension)) ||
 		(value.initialization !== undefined &&
-			(!isRecord(value.initialization) || !isJsonValue(value.initialization)))
+			(!isRecord(value.initialization) ||
+				!isJsonValue(value.initialization))) ||
+		(value.diagnostics !== undefined && !isDiagnosticConfig(value.diagnostics))
 	) {
 		return undefined;
 	}
@@ -168,7 +229,7 @@ function parseServers<T>(
 	}
 	const parsed: Record<string, T> = {};
 	for (const [id, server] of Object.entries(value)) {
-		if (!isSafeString(id)) {
+		if (!/^[a-z][a-z0-9-]*$/.test(id)) {
 			return undefined;
 		}
 		const candidate = parseServer(server);
@@ -200,6 +261,7 @@ export function parseConfigText(
 			"network",
 			"autoInstall",
 			"postEditDiagnostics",
+			"diagnostics",
 			"servers",
 		])
 	) {
@@ -216,7 +278,9 @@ export function parseConfigText(
 			(value.autoInstall !== undefined &&
 				typeof value.autoInstall !== "boolean") ||
 			(value.postEditDiagnostics !== undefined &&
-				typeof value.postEditDiagnostics !== "boolean")
+				typeof value.postEditDiagnostics !== "boolean") ||
+			(value.diagnostics !== undefined &&
+				!isDiagnosticConfig(value.diagnostics))
 		) {
 			return { ok: false, reason: "invalid_schema" };
 		}
@@ -230,7 +294,8 @@ export function parseConfigText(
 		(value.network !== undefined && value.network !== "offline") ||
 		(value.autoInstall !== undefined && value.autoInstall !== false) ||
 		(value.postEditDiagnostics !== undefined &&
-			value.postEditDiagnostics !== false)
+			value.postEditDiagnostics !== false) ||
+		(value.diagnostics !== undefined && !isDiagnosticConfig(value.diagnostics))
 	) {
 		return { ok: false, reason: "invalid_schema" };
 	}

@@ -32,7 +32,7 @@ function buildServerEnvironment(
 		if (value) result[key] = value;
 	}
 	if (!result.PATH && environment.Path) result.PATH = environment.Path;
-	return { ...result, ...server.env };
+	return { ...result, ...(server.route?.env ?? server.env) };
 }
 
 function waitForClose(child: ChildProcess, timeoutMs: number): Promise<void> {

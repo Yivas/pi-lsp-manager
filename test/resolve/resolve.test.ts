@@ -136,6 +136,27 @@ describe("file resolution", () => {
 		expect(await resolveFile(workspace, input)).toEqual({ ok: false, code });
 	});
 
+	it("derives acceptance and a stable fallback language ID from effective servers", async () => {
+		const workspace = await fixture();
+		const source = await makeFile(workspace, "app.custom");
+		const config = createDefaultConfig([
+			definition({
+				id: "custom",
+				extensions: [".custom"],
+				languageIds: ["custom-language"],
+				roles: ["semantic"],
+			}),
+		]);
+		expect(await resolveFile(workspace, source, config.servers)).toMatchObject({
+			ok: true,
+			value: { extension: ".custom", languageId: "custom-language" },
+		});
+		expect(await resolveFile(workspace, source, {})).toEqual({
+			ok: false,
+			code: "unsupported_file",
+		});
+	});
+
 	it("rejects absolute paths and symlinks that escape the canonical workspace", async () => {
 		const workspace = await fixture();
 		const outside = await fixture();
@@ -286,6 +307,27 @@ describe("server selection", () => {
 		]);
 	});
 
+	it("uses an explicit extension map to keep auxiliary language IDs compatible", () => {
+		const config = createDefaultConfig([
+			definition({ id: "primary", priority: 100 }),
+			definition({
+				id: "auxiliary",
+				priority: 50,
+				languageIds: ["typescript", "typescriptreact"],
+				languageIdByExtension: { ".ts": "typescript" },
+			}),
+		]);
+		const selection = selectServers(
+			config,
+			selectedFile,
+			"diagnostics",
+			selectionContext({ availableServerIds: new Set(["auxiliary"]) }),
+		);
+		expect(selection.auxiliaries.map((server) => server.id)).toEqual([
+			"auxiliary",
+		]);
+	});
+
 	it("requires every gate before returning a missing install candidate", () => {
 		const base = createDefaultConfig([definition()]);
 		const server = base.servers.typescript;
@@ -342,13 +384,66 @@ describe("server selection", () => {
 		).toBe("typescript");
 	});
 
-	it("filters disabled, role, extension, and language mismatches", () => {
+	it("accepts an explicit server only when its effective ID, role, extension, and language ID match", () => {
+		const config = createDefaultConfig([
+			definition({ id: "semantic", roles: ["semantic"] }),
+			definition({ id: "diagnostics", roles: ["diagnostics"] }),
+		]);
+		expect(
+			selectServers(
+				config,
+				selectedFile,
+				"semantic",
+				selectionContext(),
+				"semantic",
+			).primary?.id,
+		).toBe("semantic");
+		expect(
+			selectServers(
+				config,
+				selectedFile,
+				"semantic",
+				selectionContext(),
+				"missing",
+			),
+		).toEqual({ auxiliaries: [] });
+		expect(
+			selectServers(
+				config,
+				selectedFile,
+				"semantic",
+				selectionContext(),
+				"diagnostics",
+			),
+		).toEqual({ auxiliaries: [] });
+		const semantic = config.servers.semantic;
+		if (!semantic) throw new Error("Semantic server is required.");
+		const disabled = {
+			...config,
+			servers: {
+				...config.servers,
+				semantic: { ...semantic, enabled: false },
+			},
+		};
+		expect(
+			selectServers(
+				disabled,
+				selectedFile,
+				"semantic",
+				selectionContext(),
+				"semantic",
+			),
+		).toEqual({ auxiliaries: [] });
+	});
+
+	it("filters disabled, role, extension, and server language mismatches", () => {
 		const config = createDefaultConfig([
 			definition({ id: "semantic", roles: ["semantic"] }),
 			definition({
 				id: "jsx",
 				extensions: [".jsx"],
 				languageIds: ["javascriptreact"],
+				languageIdByExtension: { ".jsx": "unsupported-language" },
 			}),
 			definition({ id: "disabled", autoInstall: false }),
 		]);
@@ -379,5 +474,32 @@ describe("server selection", () => {
 				selectionContext(),
 			),
 		).toEqual({ auxiliaries: [] });
+	});
+
+	it("selects each role with its own language ID for a shared extension", () => {
+		const config = createDefaultConfig([
+			definition({
+				id: "diagnostics",
+				roles: ["diagnostics"],
+				priority: 200,
+				languageIds: ["custom-ts"],
+				languageIdByExtension: { ".ts": "custom-ts" },
+			}),
+			definition({
+				id: "semantic",
+				roles: ["semantic"],
+				priority: 100,
+				languageIds: ["typescript"],
+				languageIdByExtension: { ".ts": "typescript" },
+			}),
+		]);
+		expect(
+			selectServers(config, selectedFile, "diagnostics", selectionContext())
+				.primary?.id,
+		).toBe("diagnostics");
+		expect(
+			selectServers(config, selectedFile, "semantic", selectionContext())
+				.primary?.id,
+		).toBe("semantic");
 	});
 });

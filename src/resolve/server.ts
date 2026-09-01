@@ -1,3 +1,4 @@
+import { languageIdForExtension } from "./file.js";
 import type {
 	EffectiveConfig,
 	EffectiveServerConfig,
@@ -41,9 +42,10 @@ function supportsFile(
 	server: EffectiveServerConfig,
 	file: ResolvedFile,
 ): boolean {
+	const languageId = languageIdForExtension(server, file.extension);
 	return (
 		server.extensions.includes(file.extension) &&
-		server.languageIds.includes(file.languageId)
+		server.languageIds.includes(languageId)
 	);
 }
 
@@ -67,6 +69,7 @@ export function selectServers(
 	file: ResolvedFile,
 	role: SelectionRole,
 	context: ServerSelectionContext,
+	explicitServerId?: string,
 ): ServerSelection {
 	if (!context.projectTrusted) {
 		return { auxiliaries: [] };
@@ -76,7 +79,8 @@ export function selectServers(
 			(server) =>
 				server.enabled &&
 				supportsRole(server, role) &&
-				supportsFile(server, file),
+				supportsFile(server, file) &&
+				(!explicitServerId || server.id === explicitServerId),
 		)
 		.sort(compareServers);
 	const [primary, ...remaining] = candidates;

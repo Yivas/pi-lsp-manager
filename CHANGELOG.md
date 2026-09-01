@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+These changes are present on `main` and are not part of the published npm `0.1.0` package. No release version has been approved.
+
+### Added
+
+- Complete global manual server routes with executable argv, optional environment and LSP initialization options, extensions, language IDs, extension-specific language-ID mapping, roles, priority, and diagnostic timing.
+- Manual catalog entries for Biome, Tailwind CSS, ESLint, Python, Rust, Go, Ruby, Elixir, Zig, C#, F#, Swift, C/C++, Java, Kotlin, YAML, Lua, PHP, Prisma, Dart, OCaml, Bash, Terraform, TeX, Gleam, Clojure, Nix, Typst, and Haskell, with explicit candidate admission rather than compatibility claims.
+- Batch `lsp_diagnostics` inputs for `paths`, `servers`, `fileLimit`, `limit`, and `severity`, with deterministic canonical discovery, default and configured directory exclusions, bounded output, omissions, and partial failures. The legacy `filePath` form remains available.
+- `lsp_fix` source-action previews and optional single-action writes, including `source.fixAll` and `source.organizeImports`; ambiguous results can be selected with `lsp_apply_code_action`.
+- Expanded `lsp_status` records for route configuration, availability, runnable state, admission, roles, extensions, recipe presence, installability, and runtime activity, plus the generic `LSP working` UI activity status.
+
+### Changed
+
+- Trusted-project configuration remains reduction-only: it can disable or reduce known global routes and policy, but cannot add commands, arguments, environment, initialization, extensions, language IDs, roles, or recipes.
+- Configuration no longer treats another extension's server file as an import source. Manual migration requires reviewing and transcribing a complete global route.
+- Server selection now uses catalog and global route metadata, role coverage, language IDs, and deterministic priority ordering. Diagnostic auxiliaries run only when already available; only the selected primary can use an authorized installation path.
+- Diagnostic discovery and execution reuse one session per canonical workspace-root/server pair, do not follow symlinks, and preserve bounded cancellation and shutdown behavior.
+
+### Fixed
+
+- Prevented discovery and status paths from creating installation state, locks, staging directories, audit records, or server processes as side effects.
+- Prevented `lsp_fix` from writing when no source action or multiple source actions are returned; every selected action continues through preview hashing and validated workspace-edit checks.
+- Kept untrusted-project operations fail-closed before project configuration reads, path reads, discovery, process startup, or installation. The explicit `/lsp install <id>` exception remains global-policy-only and does not start a server.
+
 ## 0.1.0 - 2026-09-01
 
 First public release.

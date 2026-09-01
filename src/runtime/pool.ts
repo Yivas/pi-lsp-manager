@@ -9,6 +9,7 @@ export interface RuntimeSession {
 
 export interface PoolEntry {
 	key: string;
+	serverId: string;
 	state: "starting" | "ready" | "stopping";
 	queue: SerialQueue;
 	leases: LeaseCounter;
@@ -173,6 +174,7 @@ export class RuntimePool {
 					: abortError();
 			const entry: PoolEntry = {
 				key,
+				serverId: JSON.parse(key)[1] as string,
 				state: "ready",
 				queue: new SerialQueue(),
 				leases: new LeaseCounter(),
@@ -234,6 +236,17 @@ export class RuntimePool {
 		]);
 		// Never wait for a non-cooperative factory forever. Late resolutions are
 		// tracked above and terminate their owned session before release.
+	}
+
+	/** Returns active server IDs without exposing roots or process details. */
+	public activeServerIds(): readonly string[] {
+		return [
+			...new Set(
+				[...this.entries.values()]
+					.filter((entry) => entry.state === "ready")
+					.map((entry) => entry.serverId),
+			),
+		].sort();
 	}
 
 	public size(): number {

@@ -34,8 +34,10 @@ export interface ValidationLimits {
 }
 export interface ValidationOptions {
 	workspacePath: string;
-	/** Numeric TextDocumentEdit versions must have this exact open-document snapshot. */
+	/** Numeric TextDocumentEdit versions may match the exact URI spelling. */
 	versions?: ReadonlyMap<string, number>;
+	/** Canonical path bindings accept equivalent file URI spellings without weakening versions. */
+	expectedFileVersions?: ReadonlyMap<string, number>;
 	/**
 	 * Main documents bind their WorkspaceEdit to the exact bytes sent to the server.
 	 * Unversioned secondary edits have no LSP document snapshot in v1: we snapshot
@@ -122,11 +124,6 @@ export async function validateWorkspaceEdit(
 	for (const document of edit.documents) {
 		const rawPath = safeFileUri(document.uri);
 		if (!rawPath) return undefined;
-		if (
-			document.version !== undefined &&
-			options.versions?.get(document.uri) !== document.version
-		)
-			return undefined;
 		let path: string;
 		let parentPath: string;
 		try {
@@ -141,6 +138,12 @@ export async function validateWorkspaceEdit(
 				return undefined;
 		} catch {
 			return undefined;
+		}
+		if (document.version !== undefined) {
+			const expectedVersion =
+				options.versions?.get(document.uri) ??
+				options.expectedFileVersions?.get(path);
+			if (expectedVersion !== document.version) return undefined;
 		}
 		if (seen.has(path)) return undefined;
 		seen.add(path);

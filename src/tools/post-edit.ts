@@ -23,11 +23,11 @@ export function createPostEditHandler(service: TrustedOperationService) {
 			!ctx.isProjectTrusted()
 		)
 			return;
-		const resolved = await resolveFile(ctx.cwd, path);
-		if (!resolved.ok) return;
 		try {
 			const loaded = await service.config(ctx);
 			if (!loaded.config.postEditDiagnostics) return;
+			const resolved = await resolveFile(ctx.cwd, path, loaded.config.servers);
+			if (!resolved.ok) return;
 			const result = await diagnostics(
 				service,
 				ctx,

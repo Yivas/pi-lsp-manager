@@ -4,6 +4,7 @@ import { NodePackageManager } from "./install/npm.js";
 import { createNodeInstallationVerifier } from "./install/verify.js";
 import { RuntimePool } from "./runtime/pool.js";
 import { RuntimeReaper } from "./runtime/reaper.js";
+import { isLspTool, LspActivity } from "./host/activity.js";
 import { type CommandActivity, registerLspCommand } from "./commands/lsp.js";
 import {
 	codeActions,
@@ -16,6 +17,7 @@ import {
 } from "./tools/apply-code-action.js";
 import { definition, definitionSchema } from "./tools/definition.js";
 import { diagnostics, diagnosticsSchema } from "./tools/diagnostics.js";
+import { fix, fixSchema } from "./tools/fix.js";
 import { createPostEditHandler } from "./tools/post-edit.js";
 import { prepareRename, prepareRenameSchema } from "./tools/prepare-rename.js";
 import { references, referencesSchema } from "./tools/references.js";
@@ -47,6 +49,7 @@ export function createShutdownHandler(
 	activity: CommandActivity = {
 		controllers: new Set<AbortController>(),
 		pending: new Set<Promise<void>>(),
+		indicator: new LspActivity(),
 	},
 	cleanup?: () => void,
 ): (_event?: unknown) => Promise<void> {
@@ -54,6 +57,7 @@ export function createShutdownHandler(
 	return () => {
 		shutdown ??= (async () => {
 			for (const controller of activity.controllers) controller.abort();
+			activity.indicator?.clear();
 			cleanup?.();
 			const active = coordinator;
 			const pool = runtimePool;
@@ -87,6 +91,7 @@ export default function registerExtension(pi: ExtensionAPI): void {
 	const activity: CommandActivity = {
 		controllers: new Set<AbortController>(),
 		pending: new Set<Promise<void>>(),
+		indicator: new LspActivity(),
 	};
 	pi.registerTool({
 		name: "lsp_diagnostics",
@@ -137,6 +142,15 @@ export default function registerExtension(pi: ExtensionAPI): void {
 			codeActions(service, previews, ctx, input, signal),
 	});
 	pi.registerTool({
+		name: "lsp_fix",
+		label: "LSP source fix",
+		description:
+			"Preview source actions or apply one unambiguous action through the guarded pipeline.",
+		parameters: fixSchema,
+		execute: (_id, input, signal, _update, ctx) =>
+			fix(service, previews, ctx, input, signal),
+	});
+	pi.registerTool({
 		name: "lsp_rename",
 		label: "LSP rename",
 		description: "Rename a prepared symbol through a validated workspace edit.",
@@ -162,6 +176,14 @@ export default function registerExtension(pi: ExtensionAPI): void {
 			status(service, ctx, signal),
 	});
 	pi.on("tool_result", createPostEditHandler(service));
+	pi.on("tool_execution_start", (event, ctx) => {
+		if (isLspTool(event.toolName))
+			activity.indicator?.start(event.toolCallId, ctx);
+	});
+	pi.on("tool_execution_end", (event, ctx) => {
+		if (isLspTool(event.toolName))
+			activity.indicator?.end(event.toolCallId, ctx);
+	});
 	registerLspCommand(pi, service, activity);
 	pi.on(
 		"session_shutdown",

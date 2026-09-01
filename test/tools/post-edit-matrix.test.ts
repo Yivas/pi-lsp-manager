@@ -7,6 +7,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { createDefaultConfig } from "../../src/config/load.js";
 import { createPostEditHandler } from "../../src/tools/post-edit.js";
 import { TrustedOperationService } from "../../src/tools/shared.js";
 
@@ -108,7 +109,7 @@ function serviceFor(options: {
 					network: "offline",
 					autoInstall: false,
 					postEditDiagnostics: options.postEditDiagnostics ?? true,
-					servers: {},
+					servers: createDefaultConfig().servers,
 				},
 				paths: {},
 				globalLayer: "absent",
@@ -144,7 +145,6 @@ describe("post-edit event matrix", () => {
 		["failed edit", { ...editEvent(), isError: true }],
 		["ambiguous path", editEvent({ path: ["src/file.ts", "other.ts"] })],
 		["missing path", editEvent({})],
-		["unsupported path", editEvent({ path: "src/file.txt" })],
 		["empty path", editEvent({ path: "" })],
 	])(
 		"preserves the original non-trigger result for %s",
@@ -178,7 +178,52 @@ describe("post-edit event matrix", () => {
 					ctx,
 				),
 			).toBeUndefined();
-			expect(config).not.toHaveBeenCalled();
+			expect(config).toHaveBeenCalledTimes(1);
+		} finally {
+			await rm(directory, { recursive: true, force: true });
+		}
+	});
+
+	it("uses effective global manual routes for post-edit diagnostics", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "pi-lsp-post-manual-"));
+		try {
+			const filePath = join(directory, "notes.custom");
+			await writeFile(filePath, "custom\n", "utf8");
+			const service = serviceFor({
+				config: async () => ({
+					config: {
+						version: 1,
+						network: "offline",
+						autoInstall: false,
+						postEditDiagnostics: true,
+						servers: {
+							custom: {
+								id: "custom",
+								enabled: true,
+								autoInstall: false,
+								priority: 1,
+								route: { command: "custom-ls", args: [] },
+								extensions: [".custom"],
+								roles: ["diagnostics"],
+								languageIds: ["custom"],
+								admission: "candidate",
+								manualHelp: "Install manually.",
+							},
+						},
+					},
+					paths: {},
+					globalLayer: "valid",
+					projectLayer: "absent",
+				}),
+			});
+			const result = await createPostEditHandler(service)(
+				writeEvent({ path: filePath }),
+				{ ...context, cwd: directory } as ExtensionContext,
+			);
+			expect(result?.content.at(-1)).toMatchObject({
+				type: "text",
+				text: expect.stringContaining("LSP diagnostics"),
+			});
 		} finally {
 			await rm(directory, { recursive: true, force: true });
 		}

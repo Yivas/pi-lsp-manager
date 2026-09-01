@@ -3,6 +3,7 @@ import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { DEFAULT_SERVERS } from "../catalog/servers.js";
 import type {
+	DiagnosticConfig,
 	EffectiveConfig,
 	EffectiveServerConfig,
 	GlobalConfig,
@@ -90,13 +91,27 @@ export function getConfigPaths(
 }
 
 function fromDefinition(definition: ServerDefinition): EffectiveServerConfig {
+	const route =
+		definition.route ??
+		(definition.command
+			? {
+					command: definition.command,
+					args: [...(definition.args ?? [])],
+					...(definition.env ? { env: { ...definition.env } } : {}),
+					...(definition.initialization
+						? { initialization: { ...definition.initialization } }
+						: {}),
+				}
+			: undefined);
 	return {
 		id: definition.id,
 		enabled: true,
 		autoInstall: definition.autoInstall,
 		priority: definition.priority,
-		command: definition.command,
-		args: [...definition.args],
+		...(route ? { route } : {}),
+		...(definition.languageIdByExtension
+			? { languageIdByExtension: { ...definition.languageIdByExtension } }
+			: {}),
 		extensions: [...definition.extensions],
 		roles: [...definition.roles],
 		languageIds: [...definition.languageIds],
@@ -104,6 +119,14 @@ function fromDefinition(definition: ServerDefinition): EffectiveServerConfig {
 		admission: definition.admission,
 		manualHelp: definition.manualHelp,
 	};
+}
+
+function hasConsistentLanguageRouting(server: EffectiveServerConfig): boolean {
+	return Object.entries(server.languageIdByExtension ?? {}).every(
+		([extension, languageId]) =>
+			server.extensions.includes(extension) &&
+			server.languageIds.includes(languageId),
+	);
 }
 
 function applyGlobalServer(
@@ -117,7 +140,10 @@ function applyGlobalServer(
 			override.args === undefined ||
 			override.extensions === undefined ||
 			override.roles === undefined ||
-			override.languageIds === undefined
+			override.languageIds === undefined ||
+			override.extensions.length === 0 ||
+			override.roles.length === 0 ||
+			override.languageIds.length === 0
 		) {
 			return undefined;
 		}
@@ -126,34 +152,73 @@ function applyGlobalServer(
 			enabled: override.enabled ?? true,
 			autoInstall: false,
 			priority: override.priority ?? 0,
-			command: override.command,
-			args: [...override.args],
+			route: {
+				command: override.command,
+				args: [...override.args],
+				...(override.env !== undefined ? { env: { ...override.env } } : {}),
+				...(override.initialization !== undefined
+					? { initialization: { ...override.initialization } }
+					: {}),
+			},
 			extensions: [...override.extensions],
 			roles: [...override.roles],
 			languageIds: [...override.languageIds],
+			...(override.languageIdByExtension !== undefined
+				? { languageIdByExtension: { ...override.languageIdByExtension } }
+				: {}),
 			diagnostics: {
 				pushGraceMs: 5_000,
 				settleMs: 50,
 				pullGraceMs: 250,
+				...override.diagnostics,
 			},
-			admission: "detected",
+			admission: "candidate",
 			manualHelp: "Install this server manually, then retry.",
 		};
-		if (override.env) {
-			server.env = { ...override.env };
-		}
-		if (override.initialization) {
-			server.initialization = { ...override.initialization };
-		}
-		return server;
+		return hasConsistentLanguageRouting(server) ? server : undefined;
 	}
+	const baseRoute =
+		base.route ??
+		(base.command
+			? {
+					command: base.command,
+					args: [...(base.args ?? [])],
+					...(base.env ? { env: base.env } : {}),
+					...(base.initialization
+						? { initialization: base.initialization }
+						: {}),
+				}
+			: undefined);
+	const hasRouteOverride =
+		override.command !== undefined ||
+		override.args !== undefined ||
+		override.env !== undefined ||
+		override.initialization !== undefined;
+	if (hasRouteOverride && !baseRoute && override.command === undefined)
+		return undefined;
 	const server: EffectiveServerConfig = {
 		...base,
 		enabled: base.enabled && (override.enabled ?? true),
 		autoInstall: base.autoInstall && (override.autoInstall ?? true),
 		priority: override.priority ?? base.priority,
-		command: override.command ?? base.command,
-		args: override.args ? [...override.args] : base.args,
+		...(hasRouteOverride
+			? {
+					route: {
+						command: override.command ?? baseRoute?.command ?? "",
+						args: [...(override.args ?? baseRoute?.args ?? [])],
+						...(override.env !== undefined
+							? { env: { ...override.env } }
+							: baseRoute?.env
+								? { env: { ...baseRoute.env } }
+								: {}),
+						...(override.initialization !== undefined
+							? { initialization: { ...override.initialization } }
+							: baseRoute?.initialization
+								? { initialization: { ...baseRoute.initialization } }
+								: {}),
+					},
+				}
+			: {}),
 		extensions: override.extensions
 			? [...override.extensions]
 			: base.extensions,
@@ -161,14 +226,25 @@ function applyGlobalServer(
 		languageIds: override.languageIds
 			? [...override.languageIds]
 			: base.languageIds,
+		...(override.languageIdByExtension !== undefined
+			? { languageIdByExtension: { ...override.languageIdByExtension } }
+			: {}),
 	};
-	if (override.env) {
-		server.env = { ...override.env };
+	if (
+		override.languageIdByExtension === undefined &&
+		(override.extensions !== undefined || override.languageIds !== undefined)
+	)
+		delete server.languageIdByExtension;
+	if (override.diagnostics) {
+		server.diagnostics = {
+			pushGraceMs: 5_000,
+			settleMs: 50,
+			pullGraceMs: 250,
+			...base.diagnostics,
+			...override.diagnostics,
+		};
 	}
-	if (override.initialization) {
-		server.initialization = { ...override.initialization };
-	}
-	return server;
+	return hasConsistentLanguageRouting(server) ? server : undefined;
 }
 
 function applyGlobal(
@@ -185,13 +261,94 @@ function applyGlobal(
 		}
 		servers[id] = merged;
 	}
+	const diagnostics: DiagnosticConfig = {
+		pushGraceMs:
+			global.diagnostics?.pushGraceMs ??
+			defaults.diagnostics?.pushGraceMs ??
+			5_000,
+		settleMs:
+			global.diagnostics?.settleMs ?? defaults.diagnostics?.settleMs ?? 50,
+		pullGraceMs:
+			global.diagnostics?.pullGraceMs ??
+			defaults.diagnostics?.pullGraceMs ??
+			250,
+		requestTimeoutMs:
+			global.diagnostics?.requestTimeoutMs ??
+			defaults.diagnostics?.requestTimeoutMs ??
+			30_000,
+		excludeDirectories:
+			global.diagnostics?.excludeDirectories ??
+			defaults.diagnostics?.excludeDirectories ??
+			[],
+	};
+	for (const [id, server] of Object.entries(servers)) {
+		const serverOverride = global.servers?.[id]?.diagnostics;
+		servers[id] = {
+			...server,
+			diagnostics: {
+				pushGraceMs:
+					serverOverride?.pushGraceMs ??
+					global.diagnostics?.pushGraceMs ??
+					server.diagnostics?.pushGraceMs ??
+					diagnostics.pushGraceMs,
+				settleMs:
+					serverOverride?.settleMs ??
+					global.diagnostics?.settleMs ??
+					server.diagnostics?.settleMs ??
+					diagnostics.settleMs,
+				pullGraceMs:
+					serverOverride?.pullGraceMs ??
+					global.diagnostics?.pullGraceMs ??
+					server.diagnostics?.pullGraceMs ??
+					diagnostics.pullGraceMs,
+			},
+		};
+	}
 	return {
 		version: 1,
 		network: global.network === "offline" ? "offline" : defaults.network,
 		autoInstall: defaults.autoInstall && (global.autoInstall ?? true),
 		postEditDiagnostics:
 			defaults.postEditDiagnostics && (global.postEditDiagnostics ?? true),
+		diagnostics,
 		servers,
+	};
+}
+
+function mergeProjectDiagnostics(
+	base: DiagnosticConfig | undefined,
+	override: Partial<DiagnosticConfig> | undefined,
+): DiagnosticConfig | undefined {
+	if (!override) return base;
+	const effective = base ?? {
+		pushGraceMs: 5_000,
+		settleMs: 50,
+		pullGraceMs: 250,
+		requestTimeoutMs: 30_000,
+		excludeDirectories: [],
+	};
+	for (const key of [
+		"pushGraceMs",
+		"settleMs",
+		"pullGraceMs",
+		"requestTimeoutMs",
+	] as const) {
+		const value = override[key];
+		if (value !== undefined && value > effective[key]) return undefined;
+	}
+	return {
+		...effective,
+		...Object.fromEntries(
+			(["pushGraceMs", "settleMs", "pullGraceMs", "requestTimeoutMs"] as const)
+				.filter((key) => override[key] !== undefined)
+				.map((key) => [key, override[key]]),
+		),
+		excludeDirectories: [
+			...new Set([
+				...effective.excludeDirectories,
+				...(override.excludeDirectories ?? []),
+			]),
+		],
 	};
 }
 
@@ -215,12 +372,34 @@ function applyProject(
 			priority: override.priority ?? current.priority,
 		};
 	}
+	const diagnostics = mergeProjectDiagnostics(
+		base.diagnostics,
+		project.diagnostics,
+	);
+	if (!diagnostics) return undefined;
+	for (const [id, server] of Object.entries(servers)) {
+		const current = server.diagnostics;
+		if (!current) continue;
+		for (const key of ["pushGraceMs", "settleMs", "pullGraceMs"] as const) {
+			const value = project.diagnostics?.[key];
+			if (value !== undefined && value > current[key]) return undefined;
+		}
+		servers[id] = {
+			...server,
+			diagnostics: {
+				pushGraceMs: project.diagnostics?.pushGraceMs ?? current.pushGraceMs,
+				settleMs: project.diagnostics?.settleMs ?? current.settleMs,
+				pullGraceMs: project.diagnostics?.pullGraceMs ?? current.pullGraceMs,
+			},
+		};
+	}
 	return {
 		...base,
 		network: project.network === "offline" ? "offline" : base.network,
 		autoInstall: base.autoInstall && (project.autoInstall ?? true),
 		postEditDiagnostics:
 			base.postEditDiagnostics && (project.postEditDiagnostics ?? true),
+		diagnostics,
 		servers,
 	};
 }
@@ -237,6 +416,13 @@ export function createDefaultConfig(
 		network: "auto",
 		autoInstall: true,
 		postEditDiagnostics: true,
+		diagnostics: {
+			pushGraceMs: 5_000,
+			settleMs: 50,
+			pullGraceMs: 250,
+			requestTimeoutMs: 30_000,
+			excludeDirectories: [],
+		},
 		servers,
 	};
 }

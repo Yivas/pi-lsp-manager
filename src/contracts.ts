@@ -14,6 +14,18 @@ export interface DiagnosticTiming {
 	pullGraceMs: number;
 }
 
+export interface DiagnosticConfig extends DiagnosticTiming {
+	requestTimeoutMs: number;
+	excludeDirectories: readonly string[];
+}
+
+export interface ServerRoute {
+	command: string;
+	args: readonly string[];
+	env?: Readonly<Record<string, string>>;
+	initialization?: Readonly<Record<string, unknown>>;
+}
+
 export interface CompatibilityRow {
 	platform: NodeJS.Platform;
 	architecture: "x64" | "arm64";
@@ -30,8 +42,13 @@ export interface ServerDefinition {
 	roles: readonly ServerRole[];
 	extensions: readonly string[];
 	languageIds: readonly string[];
-	command: string;
-	args: readonly string[];
+	languageIdByExtension?: Readonly<Record<string, string>>;
+	route?: ServerRoute;
+	/** Legacy fields remain readable while route metadata migrates. */
+	command?: string;
+	args?: readonly string[];
+	env?: Readonly<Record<string, string>>;
+	initialization?: Readonly<Record<string, unknown>>;
 	priority: number;
 	autoInstall: boolean;
 	admission: ServerAdmission;
@@ -50,7 +67,9 @@ export interface GlobalServerConfig {
 	extensions?: string[];
 	roles?: ServerRole[];
 	languageIds?: string[];
+	languageIdByExtension?: Record<string, string>;
 	initialization?: Record<string, unknown>;
+	diagnostics?: Partial<DiagnosticTiming>;
 }
 
 export interface ProjectServerConfig {
@@ -64,6 +83,7 @@ export interface GlobalConfig {
 	network?: NetworkPolicy;
 	autoInstall?: boolean;
 	postEditDiagnostics?: boolean;
+	diagnostics?: Partial<DiagnosticConfig>;
 	servers?: Record<string, GlobalServerConfig>;
 }
 
@@ -72,6 +92,7 @@ export interface ProjectConfig {
 	network?: "offline";
 	autoInstall?: false;
 	postEditDiagnostics?: false;
+	diagnostics?: Partial<DiagnosticConfig>;
 	servers?: Record<string, ProjectServerConfig>;
 }
 
@@ -80,13 +101,16 @@ export interface EffectiveServerConfig {
 	enabled: boolean;
 	autoInstall: boolean;
 	priority: number;
-	command: string;
-	args: readonly string[];
+	route?: ServerRoute;
+	/** Legacy effective fields preserve existing host integrations during migration. */
+	command?: string;
+	args?: readonly string[];
 	env?: Readonly<Record<string, string>>;
+	initialization?: Readonly<Record<string, unknown>>;
 	extensions: readonly string[];
 	roles: readonly ServerRole[];
 	languageIds: readonly string[];
-	initialization?: Readonly<Record<string, unknown>>;
+	languageIdByExtension?: Readonly<Record<string, string>>;
 	diagnostics?: DiagnosticTiming;
 	admission: ServerAdmission;
 	manualHelp: string;
@@ -97,6 +121,7 @@ export interface EffectiveConfig {
 	network: NetworkPolicy;
 	autoInstall: boolean;
 	postEditDiagnostics: boolean;
+	diagnostics?: DiagnosticConfig;
 	servers: Readonly<Record<string, EffectiveServerConfig>>;
 }
 
@@ -107,7 +132,6 @@ export interface ResolvedFile {
 	extension: string;
 	languageId: string;
 }
-
 export interface ResolvedTarget extends ResolvedFile {
 	rootPath: string;
 }
