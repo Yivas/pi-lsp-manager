@@ -79,9 +79,9 @@ A row is added only after the pinned GitHub Actions job succeeds.
 
 | Operating system | Architecture | Node | Pi | Evidence |
 |-|-|-|-|-|
-| Windows Server 2022 runner | x64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33569081533) |
-| macOS 14 runner | arm64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33569081533) |
-| Ubuntu 24.04 runner | x64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33569081533) |
+| Windows Server 2022 runner | x64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33570309213) |
+| macOS 14 runner | arm64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33570309213) |
+| Ubuntu 24.04 runner | x64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33570309213) |
 
 These rows describe the tested runners. They do not claim support for every Windows, macOS, or Linux release.
 
