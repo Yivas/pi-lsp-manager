@@ -49,6 +49,7 @@ function allowedDecision() {
 		globalConfig: createDefaultConfig(),
 		projectTrusted: true,
 		platform: "linux",
+		architecture: "x64",
 	});
 	if (!decision.allowed) throw new Error("expected allowed recipe");
 	return decision;

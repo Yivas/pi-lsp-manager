@@ -78,7 +78,7 @@ describe("workspace edit application and rollback", () => {
 	});
 
 	async function fixture(files = ["alpha\n", "bravo\n"]) {
-		directory = await mkdtemp(join(tmpdir(), "pi-lsp-apply-"));
+		directory = await realpath(await mkdtemp(join(tmpdir(), "pi-lsp-apply-")));
 		const first = join(directory, "a.ts");
 		const second = join(directory, "b.ts");
 		await writeFile(first, files[0] ?? "alpha\n");

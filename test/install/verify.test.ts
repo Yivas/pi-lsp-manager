@@ -1,5 +1,12 @@
 import { EventEmitter } from "node:events";
-import { chmod, mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
+import {
+	chmod,
+	mkdtemp,
+	mkdir,
+	realpath,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -65,7 +72,7 @@ describe("production installation verifier", () => {
 			{ PATH: "/safe/bin", SECRET: "not-inherited" },
 		);
 		expect(await verifier(root, recipe, new AbortController().signal)).toEqual({
-			path: target,
+			path: await realpath(target),
 			version: "5.3.0",
 		});
 		expect((calls[0]?.[2] as { cwd: string; env: NodeJS.ProcessEnv }).cwd).toBe(

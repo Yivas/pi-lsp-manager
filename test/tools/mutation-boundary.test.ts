@@ -1,5 +1,5 @@
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -72,7 +72,9 @@ describe("mutation tool boundaries", () => {
 	});
 
 	it("binds rename response edits to the exact opened document bytes", async () => {
-		const directory = await mkdtemp(join(tmpdir(), "pi-lsp-rename-stale-"));
+		const directory = await realpath(
+			await mkdtemp(join(tmpdir(), "pi-lsp-rename-stale-")),
+		);
 		try {
 			const filePath = join(directory, "file.ts");
 			const uri = pathToFileURL(filePath).href;

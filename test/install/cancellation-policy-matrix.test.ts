@@ -56,6 +56,7 @@ function allowedDecision() {
 		globalConfig: createDefaultConfig(),
 		projectTrusted: true,
 		platform: "linux",
+		architecture: "x64",
 	});
 	if (!decision.allowed)
 		throw new Error("The test policy must allow installation.");
@@ -335,6 +336,7 @@ describe("installation policy matrix", () => {
 			globalConfig: createDefaultConfig(),
 			projectTrusted: true,
 			platform: "linux",
+			architecture: "x64",
 			...overrides,
 		};
 	}

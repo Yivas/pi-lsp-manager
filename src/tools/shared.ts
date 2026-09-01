@@ -72,6 +72,7 @@ export interface ToolServiceOptions {
 	resolveCommand?: typeof resolveExecutable;
 	start?: typeof NodeLspRuntimeSession.start;
 	platform?: NodeJS.Platform;
+	architecture?: NodeJS.Architecture;
 }
 
 function errorForFile(code: string): ToolError {
@@ -119,6 +120,7 @@ export class TrustedOperationService {
 	private readonly resolveCommand: typeof resolveExecutable;
 	private readonly start: typeof NodeLspRuntimeSession.start;
 	private readonly platform: NodeJS.Platform;
+	private readonly architecture: NodeJS.Architecture;
 
 	public constructor(private readonly options: ToolServiceOptions) {
 		this.load = options.load ?? loadConfig;
@@ -126,6 +128,7 @@ export class TrustedOperationService {
 		this.resolveCommand = options.resolveCommand ?? resolveExecutable;
 		this.start = options.start ?? NodeLspRuntimeSession.start;
 		this.platform = options.platform ?? process.platform;
+		this.architecture = options.architecture ?? process.arch;
 	}
 
 	private async readVerifiedText(
@@ -207,6 +210,7 @@ export class TrustedOperationService {
 			projectTrusted:
 				origin === "explicit" || loaded.projectLayer !== "not-read",
 			platform: this.platform,
+			architecture: this.architecture,
 		});
 		if (!decision.allowed)
 			throw new ToolError(
@@ -507,6 +511,7 @@ export class TrustedOperationService {
 			globalConfig: loaded.config,
 			projectTrusted: true,
 			platform: this.platform,
+			architecture: this.architecture,
 		});
 		if (!decision.allowed)
 			throw new ToolError(

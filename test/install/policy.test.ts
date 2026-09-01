@@ -19,6 +19,7 @@ function input(
 		globalConfig: createDefaultConfig(),
 		projectTrusted: true,
 		platform: "linux",
+		architecture: "x64",
 		...overrides,
 	};
 }
