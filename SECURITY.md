@@ -7,7 +7,7 @@
 | Development `main` | Security fixes target the latest commit on a best-effort basis |
 | Published releases | None exist yet |
 
-The table will list maintained release lines after the first publication.
+The table will list maintained release lines after the first publication. The development candidate is tested only against the exact host and TypeScript rows in [Language servers](docs/servers.md); those rows are compatibility evidence, not a published support lifetime.
 
 ## Report a vulnerability
 
@@ -26,6 +26,10 @@ Remove credentials, tokens, prompts, file contents, private paths, identifiers, 
 
 ## Security boundary
 
-`pi-lsp-manager` coordinates language-server processes and may invoke allowlisted package-manager recipes. It is not an operating-system sandbox. A valid report may involve command selection, project trust, path resolution, concurrent installation, cancellation, output sanitization, or unintended network and filesystem access.
+`pi-lsp-manager` coordinates language-server processes and may invoke allowlisted package-manager recipes. It is not an operating-system sandbox. A language server runs with the same operating-system permissions as Pi and may read project files or invoke language tooling.
+
+A valid report may involve command selection, project trust, path resolution, recipe or architecture admission, concurrent installation, cancellation, process lifecycle, workspace-edit validation, rollback, output sanitization, or unintended network and filesystem access. Resource operations such as file creation, rename, and deletion are rejected in v1 rather than sandboxed.
+
+See the [security model](docs/security-model.md) for the documented trust, installation, process, mutation, logging, and audit boundaries.
 
 The maintainer will review the private report, reproduce it when possible, and coordinate a fix and disclosure through the advisory. Do not disclose the vulnerability before that coordination is complete.
