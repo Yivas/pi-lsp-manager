@@ -1,10 +1,10 @@
 export interface ServerCapabilities {
 	textDocumentSync?: number | { openClose?: boolean; change?: number };
 	diagnosticProvider?: unknown;
-	definitionProvider?: boolean;
-	referencesProvider?: boolean;
-	documentSymbolProvider?: boolean;
-	workspaceSymbolProvider?: boolean;
+	definitionProvider?: boolean | Record<string, unknown>;
+	referencesProvider?: boolean | Record<string, unknown>;
+	documentSymbolProvider?: boolean | Record<string, unknown>;
+	workspaceSymbolProvider?: boolean | Record<string, unknown>;
 	renameProvider?: boolean | { prepareProvider?: boolean };
 	codeActionProvider?: boolean | { resolveProvider?: boolean };
 }
@@ -20,6 +20,10 @@ export type LspCapability =
 	| "codeActions"
 	| "codeActionResolve";
 
+function enabledProvider(value: unknown): boolean {
+	return value === true || (typeof value === "object" && value !== null);
+}
+
 export function hasCapability(
 	capabilities: ServerCapabilities,
 	capability: LspCapability,
@@ -28,13 +32,13 @@ export function hasCapability(
 		case "diagnostics":
 			return Boolean(capabilities.diagnosticProvider);
 		case "definition":
-			return capabilities.definitionProvider === true;
+			return enabledProvider(capabilities.definitionProvider);
 		case "references":
-			return capabilities.referencesProvider === true;
+			return enabledProvider(capabilities.referencesProvider);
 		case "documentSymbols":
-			return capabilities.documentSymbolProvider === true;
+			return enabledProvider(capabilities.documentSymbolProvider);
 		case "workspaceSymbols":
-			return capabilities.workspaceSymbolProvider === true;
+			return enabledProvider(capabilities.workspaceSymbolProvider);
 		case "prepareRename":
 			return (
 				typeof capabilities.renameProvider === "object" &&

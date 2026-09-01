@@ -1,6 +1,7 @@
 import {
 	CancellationTokenSource,
 	createMessageConnection,
+	ResponseError,
 	StreamMessageReader,
 	StreamMessageWriter,
 	type MessageConnection,
@@ -20,10 +21,13 @@ export interface ConnectionOptions {
 	requestTimeoutMs: number;
 	cancelDrainMs: number;
 	onTaint?: () => Promise<void> | void;
+	onClose?: () => Promise<void> | void;
 }
 
 export class LspConnection {
 	private readonly connection: MessageConnection;
+	private readonly closedSignal: Promise<void>;
+	private resolveClosed: () => void = () => undefined;
 	private closed = false;
 	private tainted = false;
 
@@ -32,12 +36,17 @@ export class LspConnection {
 		output: NodeJS.WritableStream,
 		private readonly options: ConnectionOptions,
 	) {
+		this.closedSignal = new Promise((resolve) => {
+			this.resolveClosed = resolve;
+		});
 		this.connection = createMessageConnection(
 			new StreamMessageReader(input),
 			new StreamMessageWriter(output),
 		);
 		this.connection.onClose(() => {
 			this.closed = true;
+			this.resolveClosed();
+			void this.options.onClose?.();
 		});
 		this.connection.listen();
 	}
@@ -63,7 +72,13 @@ export class LspConnection {
 	public async notify(method: string, params?: unknown): Promise<void> {
 		if (this.closed) throw new Error("connection_closed");
 		if (this.tainted) throw new Error("connection_tainted");
-		await this.connection.sendNotification(method, params);
+		try {
+			await this.connection.sendNotification(method, params);
+		} catch {
+			throw new Error(
+				this.tainted ? "connection_tainted" : "connection_closed",
+			);
+		}
 	}
 
 	public async request<T>(
@@ -94,15 +109,24 @@ export class LspConnection {
 			const raced = await Promise.race([
 				request.then(
 					(value) => ({ response: true as const, value }),
-					() => ({ response: true as const, failed: true as const }),
+					(failure: unknown) => ({ response: true as const, failure }),
 				),
 				interruption.then((code) => ({ response: false as const, code })),
+				this.closedSignal.then(() => ({
+					response: false as const,
+					code: "closed" as const,
+				})),
 			]);
-			if (raced.response)
-				return "failed" in raced
-					? { ok: false, code: "request_failed" }
-					: { ok: true, value: raced.value };
-			if (this.closed) return { ok: false, code: "closed" };
+			if (raced.response) {
+				if (!("failure" in raced)) return { ok: true, value: raced.value };
+				// JSON-RPC method errors are deterministic. Other rejections originate
+				// in the transport and are safe for the single read-only retry.
+				if (raced.failure instanceof ResponseError)
+					return { ok: false, code: "request_failed" };
+				return { ok: false, code: "closed" };
+			}
+			if (this.closed || raced.code === "closed")
+				return { ok: false, code: "closed" };
 			source.cancel();
 			let drainTimer: ReturnType<typeof setTimeout> | undefined;
 			const drained = await Promise.race([
@@ -134,6 +158,7 @@ export class LspConnection {
 	public close(): void {
 		if (this.closed) return;
 		this.closed = true;
+		this.resolveClosed();
 		this.connection.dispose();
 	}
 }

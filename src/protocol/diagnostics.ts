@@ -122,10 +122,11 @@ export class DiagnosticCollector {
 		minimumGeneration: number,
 	): PublishedDiagnostics | undefined {
 		const published = this.published.get(uri);
-		if (!published) return undefined;
+		if (!published || published.generation <= minimumGeneration)
+			return undefined;
 		if (published.version !== undefined)
 			return published.version >= version ? published : undefined;
-		return published.generation > minimumGeneration ? published : undefined;
+		return published;
 	}
 
 	private async waitForPush(
@@ -155,16 +156,21 @@ export class DiagnosticCollector {
 		}
 	}
 
+	/** Captures the receive generation immediately before a document mutation. */
+	public snapshot(): number {
+		return this.generation;
+	}
+
 	public async collect(
 		uri: string,
 		version: number,
 		supportsPull: boolean,
 		signal?: AbortSignal,
+		minimumGeneration = 0,
 	): Promise<
 		| { ok: true; diagnostics: readonly Diagnostic[] }
 		| { ok: false; code: string }
 	> {
-		const generation = this.generation;
 		if (supportsPull) {
 			const pull = await this.connection.request<{ items?: Diagnostic[] }>(
 				"textDocument/diagnostic",
@@ -183,7 +189,7 @@ export class DiagnosticCollector {
 				uri,
 				version,
 				this.options.pullDiagnosticsGraceMs,
-				generation,
+				minimumGeneration,
 				signal,
 			);
 			if (signal?.aborted) return { ok: false, code: "cancelled" };
@@ -196,7 +202,7 @@ export class DiagnosticCollector {
 			uri,
 			version,
 			this.options.pushDiagnosticsGraceMs,
-			generation,
+			minimumGeneration,
 			signal,
 		);
 		if (signal?.aborted) return { ok: false, code: "cancelled" };

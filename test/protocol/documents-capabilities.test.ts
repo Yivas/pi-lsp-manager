@@ -89,10 +89,10 @@ describe("documents and capabilities", () => {
 	it("uses explicit capability gates for every supported shape", () => {
 		const objectCapabilities = {
 			diagnosticProvider: {},
-			definitionProvider: true,
-			referencesProvider: true,
-			documentSymbolProvider: true,
-			workspaceSymbolProvider: true,
+			definitionProvider: { workDoneProgress: true },
+			referencesProvider: { workDoneProgress: true },
+			documentSymbolProvider: { label: "symbols" },
+			workspaceSymbolProvider: { resolveProvider: false },
 			renameProvider: { prepareProvider: true },
 			codeActionProvider: { resolveProvider: true },
 		};

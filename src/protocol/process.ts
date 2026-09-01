@@ -4,6 +4,7 @@ import type { ServerLaunch } from "../install/launch.js";
 import { BoundedSanitizedOutput } from "../install/sanitize.js";
 import type { RuntimeSession } from "../runtime/pool.js";
 import { LspConnection } from "./connection.js";
+import { DiagnosticCollector } from "./diagnostics.js";
 import { LspSession } from "./session.js";
 
 export type SpawnLspProcess = typeof spawn;
@@ -82,6 +83,7 @@ async function terminateChild(child: ChildProcess): Promise<void> {
 /** Owns exactly one LSP child and never sends a command through a shell. */
 export class NodeLspRuntimeSession implements RuntimeSession {
 	public readonly connection: LspConnection;
+	public readonly diagnostics: DiagnosticCollector;
 	public readonly session: LspSession;
 	private closed = false;
 	private readonly stderr = new BoundedSanitizedOutput();
@@ -96,12 +98,21 @@ export class NodeLspRuntimeSession implements RuntimeSession {
 		this.connection = new LspConnection(child.stdout, child.stdin, {
 			requestTimeoutMs: options.requestTimeoutMs ?? 30_000,
 			cancelDrainMs: options.cancelDrainMs ?? 1_000,
+			...(options.onExit ? { onClose: options.onExit } : {}),
 			onTaint: async () => {
 				// The pool removes this entry synchronously before child termination,
 				// so another acquire cannot observe a tainted/stopping session.
 				await options.onTaint?.();
 				await this.terminate();
 			},
+		});
+		// Subscribe before any document can open so fast publishDiagnostics
+		// notifications cannot race the tool that later requests collection.
+		this.diagnostics = new DiagnosticCollector(this.connection, {
+			pushDiagnosticsGraceMs: 200,
+			pullDiagnosticsGraceMs: 200,
+			diagnosticsSettleMs: 20,
+			maxDiagnosticsPerUri: 100,
 		});
 		this.session = new LspSession(this.connection, {
 			rootPath: options.rootPath,

@@ -83,6 +83,44 @@ describe("diagnostic reconciliation", () => {
 		server.dispose();
 	});
 
+	it("does not reuse a versioned publication from an earlier document open", async () => {
+		const { client, server } = pair();
+		const collector = new DiagnosticCollector(client, {
+			pushDiagnosticsGraceMs: 50,
+			diagnosticsSettleMs: 1,
+			pullDiagnosticsGraceMs: 30,
+		});
+		await server.sendNotification("textDocument/publishDiagnostics", {
+			uri: "file:///reopened.ts",
+			version: 1,
+			diagnostics: [diagnostic],
+		});
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		const generationBeforeReopen = collector.snapshot();
+		server.onRequest("textDocument/diagnostic", () => ({ items: [] }));
+		const replacement = { ...diagnostic, message: "new content" };
+		setTimeout(
+			() =>
+				void server.sendNotification("textDocument/publishDiagnostics", {
+					uri: "file:///reopened.ts",
+					version: 1,
+					diagnostics: [replacement],
+				}),
+			5,
+		);
+		expect(
+			await collector.collect(
+				"file:///reopened.ts",
+				1,
+				true,
+				undefined,
+				generationBeforeReopen,
+			),
+		).toEqual({ ok: true, diagnostics: [replacement] });
+		client.close();
+		server.dispose();
+	});
+
 	it("returns a nonempty pull immediately and rejects oversized published URIs", async () => {
 		const { client, server } = pair();
 		let sleeps = 0;

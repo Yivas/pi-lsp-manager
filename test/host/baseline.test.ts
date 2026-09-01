@@ -9,7 +9,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { meetsMinimumNodeVersion } from "../../src/host/version.js";
 import {
 	createShutdownHandler,
@@ -46,16 +46,44 @@ describe("Pi host baseline", () => {
 	});
 
 	it("constructs the idle coordinator and registers an awaitable shutdown seam", async () => {
+		vi.useFakeTimers();
 		const handlers = new Map<string, () => Promise<void>>();
+		const events: string[] = [];
+		const tools: string[] = [];
+		const commands: string[] = [];
 		registerExtension({
 			on(event: string, handler: () => Promise<void>) {
+				events.push(event);
 				handlers.set(event, handler);
 			},
+			registerTool(tool: { name: string }) {
+				tools.push(tool.name);
+			},
+			registerCommand(name: string) {
+				commands.push(name);
+			},
 		} as never);
-		expect([...handlers.keys()]).toEqual(["session_shutdown"]);
+		expect(events.sort()).toEqual(["session_shutdown", "tool_result"]);
+		expect([...handlers.keys()].sort()).toEqual([
+			"session_shutdown",
+			"tool_result",
+		]);
+		expect(commands).toEqual(["lsp"]);
+		expect(tools).toEqual([
+			"lsp_diagnostics",
+			"lsp_definition",
+			"lsp_references",
+			"lsp_symbols",
+			"lsp_prepare_rename",
+			"lsp_code_actions",
+			"lsp_status",
+		]);
+		expect(vi.getTimerCount()).toBe(0);
 		const shutdown = handlers.get("session_shutdown");
 		if (!shutdown) throw new Error("Shutdown handler is required.");
 		await Promise.all([shutdown(), shutdown()]);
+		expect(vi.getTimerCount()).toBe(0);
+		vi.useRealTimers();
 	});
 
 	it("awaits installed resources exactly once for every host shutdown reason", async () => {

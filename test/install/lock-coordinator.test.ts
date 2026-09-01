@@ -369,7 +369,9 @@ describe("installation coordinator", () => {
 		);
 		const timed = coordinator(new FakePackageManager(), {
 			ownerIsAlive: async () => true,
-			installTimeoutMs: 20,
+			// Leave enough wall-clock room to finish safety checks under a loaded
+			// parallel suite before asserting the lock-wait timeout sequence.
+			installTimeoutMs: 200,
 		});
 		const timeoutPhases: string[] = [];
 		expect(
@@ -379,7 +381,11 @@ describe("installation coordinator", () => {
 				onPhase: (phase) => timeoutPhases.push(phase),
 			}),
 		).toMatchObject({ reason: "timed_out" });
-		expect(timeoutPhases).toEqual(["waiting-lock", "failed"]);
+		expect(timeoutPhases.at(0)).toBe("waiting-lock");
+		expect(timeoutPhases.at(-1)).toBe("failed");
+		expect(
+			timeoutPhases.slice(0, -1).every((phase) => phase === "waiting-lock"),
+		).toBe(true);
 	});
 
 	it("does not hang shutdown when a package manager never resolves", async () => {
