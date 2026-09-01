@@ -24,6 +24,7 @@
   },
   "files": [
     "src",
+    "docs",
     "README.md",
     "LICENSE",
     "SECURITY.md"
@@ -46,12 +47,13 @@
     "vscode-jsonrpc": "9.0.2"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.2.4",
     "@earendil-works/pi-ai": "0.84.1",
     "@earendil-works/pi-coding-agent": "0.84.1",
     "@types/node": "24.5.2",
-    "@biomejs/biome": "2.2.4",
     "typebox": "1.0.26",
-    "typescript": "5.9.2",
+    "typescript": "5.9.3",
+    "typescript-language-server": "5.3.0",
     "vitest": "3.2.7"
   }
 }

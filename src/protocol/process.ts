@@ -108,10 +108,15 @@ export class NodeLspRuntimeSession implements RuntimeSession {
 		});
 		// Subscribe before any document can open so fast publishDiagnostics
 		// notifications cannot race the tool that later requests collection.
+		const diagnosticTiming = options.server.diagnostics ?? {
+			pushGraceMs: 5_000,
+			pullGraceMs: 250,
+			settleMs: 50,
+		};
 		this.diagnostics = new DiagnosticCollector(this.connection, {
-			pushDiagnosticsGraceMs: 200,
-			pullDiagnosticsGraceMs: 200,
-			diagnosticsSettleMs: 20,
+			pushDiagnosticsGraceMs: diagnosticTiming.pushGraceMs,
+			pullDiagnosticsGraceMs: diagnosticTiming.pullGraceMs,
+			diagnosticsSettleMs: diagnosticTiming.settleMs,
 			maxDiagnosticsPerUri: 100,
 		});
 		this.session = new LspSession(this.connection, {

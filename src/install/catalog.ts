@@ -8,10 +8,15 @@ export interface PackagePin {
 	node: string;
 }
 
+export interface InstallTarget {
+	platform: NodeJS.Platform;
+	architecture: NodeJS.Architecture;
+}
+
 export interface InstallRecipe {
 	serverId: string;
 	revision: string;
-	platforms: readonly NodeJS.Platform[];
+	targets: readonly InstallTarget[];
 	registry: "https://registry.npmjs.org";
 	packages: readonly PackagePin[];
 	executable: "typescript-language-server";
@@ -33,7 +38,11 @@ function deepFreeze<T>(value: T): T {
 const TYPESCRIPT_RECIPE = deepFreeze<InstallRecipe>({
 	serverId: "typescript",
 	revision: "typescript-language-server-5.3.0_typescript-5.9.3",
-	platforms: ["win32", "darwin", "linux"],
+	targets: [
+		{ platform: "win32", architecture: "x64" },
+		{ platform: "darwin", architecture: "arm64" },
+		{ platform: "linux", architecture: "x64" },
+	],
 	registry: "https://registry.npmjs.org",
 	packages: [
 		{

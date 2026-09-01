@@ -1,3 +1,5 @@
+import { normalize as normalizePath } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { LspConnection } from "./connection.js";
 
 export interface Diagnostic {
@@ -31,6 +33,18 @@ interface PublishedDiagnostics {
 const DEFAULT_MAX_URIS = 256;
 const DEFAULT_MAX_URI_LENGTH = 4_096;
 const DEFAULT_MAX_DIAGNOSTICS = 1_000;
+function uriKey(uri: string): string {
+	try {
+		const parsed = new URL(uri);
+		if (parsed.protocol !== "file:") return uri;
+		const path = normalizePath(fileURLToPath(parsed));
+		return process.platform === "win32" || /^[\\/][A-Za-z]:/.test(path)
+			? `file:${path.toLowerCase()}`
+			: `file:${path}`;
+	} catch {
+		return uri;
+	}
+}
 function sleep(milliseconds: number, signal?: AbortSignal): Promise<void> {
 	return new Promise((resolve) => {
 		const timer = setTimeout(resolve, milliseconds);
@@ -95,7 +109,8 @@ export class DiagnosticCollector {
 				!Array.isArray(value.diagnostics)
 			)
 				return;
-			const current = this.published.get(value.uri);
+			const key = uriKey(value.uri);
+			const current = this.published.get(key);
 			// Versioned publications never regress. Unversioned messages are tracked by
 			// receive generation instead of pretending they belong to version zero.
 			if (
@@ -107,7 +122,7 @@ export class DiagnosticCollector {
 				return;
 			if (!current && this.published.size >= this.maxUris)
 				this.published.delete(this.published.keys().next().value as string);
-			this.published.set(value.uri, {
+			this.published.set(key, {
 				version: value.version,
 				diagnostics: normalize(value.diagnostics, this.maxDiagnostics),
 				at: this.now(),
@@ -121,7 +136,7 @@ export class DiagnosticCollector {
 		version: number,
 		minimumGeneration: number,
 	): PublishedDiagnostics | undefined {
-		const published = this.published.get(uri);
+		const published = this.published.get(uriKey(uri));
 		if (!published || published.generation <= minimumGeneration)
 			return undefined;
 		if (published.version !== undefined)

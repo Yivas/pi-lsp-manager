@@ -69,6 +69,11 @@ describe("installation policy", () => {
 			input({ platform: "freebsd" }),
 			"unsupported_platform",
 		],
+		[
+			"untested architecture",
+			input({ architecture: "arm64" }),
+			"unsupported_platform",
+		],
 	] as const)("denies %s", (_name, policyInput, reason) => {
 		expect(evaluateInstallPolicy(policyInput)).toMatchObject({
 			allowed: false,

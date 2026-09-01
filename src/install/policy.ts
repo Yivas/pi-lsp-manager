@@ -23,6 +23,7 @@ export interface InstallPolicyInput {
 	projectConfig?: EffectiveConfig;
 	projectTrusted: boolean;
 	platform: NodeJS.Platform;
+	architecture?: NodeJS.Architecture;
 }
 
 const NO_RECIPE_HELP = "No approved automatic recipe exists for this server.";
@@ -68,7 +69,14 @@ export function evaluateInstallPolicy(
 			manualHelp: server.manualHelp,
 		};
 	}
-	if (!recipe.platforms.includes(input.platform)) {
+	const architecture = input.architecture ?? process.arch;
+	if (
+		!recipe.targets.some(
+			(target) =>
+				target.platform === input.platform &&
+				target.architecture === architecture,
+		)
+	) {
 		return {
 			allowed: false,
 			reason: "unsupported_platform",

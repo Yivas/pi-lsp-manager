@@ -73,6 +73,11 @@ export async function diagnostics(
 					operation.diagnosticGeneration,
 				);
 				if (!result.ok) {
+					if (result.code === "diagnostics_timed_out")
+						throw new ToolError(
+							"diagnostics_timed_out",
+							"Retry after the language server finishes analyzing the file.",
+						);
 					if (
 						[
 							"cancelled",

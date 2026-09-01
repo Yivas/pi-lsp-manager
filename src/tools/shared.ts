@@ -34,6 +34,7 @@ export type ToolErrorCode =
 	| "server_disabled"
 	| "capability_missing"
 	| "cancelled"
+	| "diagnostics_timed_out"
 	| "runtime_failed";
 
 export class ToolError extends Error {

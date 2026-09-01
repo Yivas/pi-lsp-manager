@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: ${{ matrix.os }} / Node 22.19.0
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: win32
+            architecture: x64
+          - os: macos-14
+            platform: darwin
+            architecture: arm64
+          - os: ubuntu-24.04
+            platform: linux
+            architecture: x64
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.19.0
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Check formatting
+        run: npm run format:check
+      - name: Lint
+        run: npm run lint
+      - name: Type-check
+        run: npm run typecheck
+      - name: Run deterministic suite
+        run: npm test
+      - name: Verify and record compatibility row
+        shell: bash
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          node -e 'const os=require("node:os"); const actual={platform:os.platform(),release:os.release(),architecture:os.arch(),node:process.version}; console.log(JSON.stringify(actual)); if(actual.platform!==process.env.EXPECTED_PLATFORM||actual.architecture!==process.env.EXPECTED_ARCHITECTURE) process.exit(1)'
+          npm ls --depth=0 @earendil-works/pi-coding-agent typescript-language-server typescript
+      - name: Run real TypeScript Language Server fixture
+        run: npm test -- test/real-servers/typescript-language-server.test.ts
+        env:
+          RUN_REAL_LSP: "1"
+      - name: Audit locked dependencies
+        run: npm audit --audit-level=low
+      - name: Inspect package contents
+        run: npm run pack:check
+      - name: Install and load the packed extension in isolation
+        shell: bash
+        run: |
+          tarball=$(npm pack --silent)
+          package_path="$GITHUB_WORKSPACE/$tarball"
+          isolated=$(mktemp -d)
+          cd "$isolated"
+          npm init -y >/dev/null
+          npm install --ignore-scripts --no-audit --no-fund "$package_path" >/dev/null
+          test -f node_modules/pi-lsp-manager/docs/security-model.md
+          ./node_modules/.bin/pi --no-extensions --extension ./node_modules/pi-lsp-manager/src/index.ts --list-models >/dev/null
+          rm -rf "$isolated" "$package_path"

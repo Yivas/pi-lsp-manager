@@ -121,6 +121,29 @@ describe("diagnostic reconciliation", () => {
 		server.dispose();
 	});
 
+	it("matches equivalent encoded Windows file URIs case-insensitively", async () => {
+		const { client, server } = pair();
+		const collector = new DiagnosticCollector(client, {
+			pushDiagnosticsGraceMs: 100,
+			diagnosticsSettleMs: 1,
+			pullDiagnosticsGraceMs: 20,
+		});
+		setTimeout(
+			() =>
+				void server.sendNotification("textDocument/publishDiagnostics", {
+					uri: "file:///c%3A/workspace/file.ts",
+					version: 1,
+					diagnostics: [diagnostic],
+				}),
+			5,
+		);
+		expect(
+			await collector.collect("file:///C:/workspace/file.ts", 1, false),
+		).toEqual({ ok: true, diagnostics: [diagnostic] });
+		client.close();
+		server.dispose();
+	});
+
 	it("returns a nonempty pull immediately and rejects oversized published URIs", async () => {
 		const { client, server } = pair();
 		let sleeps = 0;

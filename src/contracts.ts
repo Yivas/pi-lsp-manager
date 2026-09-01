@@ -8,6 +8,23 @@ export type ServerAdmission =
 	| "tested"
 	| "auto-installable";
 
+export interface DiagnosticTiming {
+	pushGraceMs: number;
+	settleMs: number;
+	pullGraceMs: number;
+}
+
+export interface CompatibilityRow {
+	platform: NodeJS.Platform;
+	architecture: "x64" | "arm64";
+	runner: string;
+	nodeVersion: string;
+	piVersion: string;
+	serverVersion: string;
+	languageVersion: string;
+	capabilities: readonly string[];
+}
+
 export interface ServerDefinition {
 	id: string;
 	roles: readonly ServerRole[];
@@ -18,6 +35,8 @@ export interface ServerDefinition {
 	priority: number;
 	autoInstall: boolean;
 	admission: ServerAdmission;
+	diagnostics: DiagnosticTiming;
+	compatibility: readonly CompatibilityRow[];
 	manualHelp: string;
 }
 
@@ -68,6 +87,7 @@ export interface EffectiveServerConfig {
 	roles: readonly ServerRole[];
 	languageIds: readonly string[];
 	initialization?: Readonly<Record<string, unknown>>;
+	diagnostics?: DiagnosticTiming;
 	admission: ServerAdmission;
 	manualHelp: string;
 }

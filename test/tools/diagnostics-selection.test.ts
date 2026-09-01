@@ -196,6 +196,40 @@ describe("diagnostics server selection", () => {
 		expect(JSON.parse(warningContent.text).diagnostics).toHaveLength(1);
 	});
 
+	it("preserves a diagnostics timeout as a stable tool error", async () => {
+		const operation = {
+			target: { rootPath: process.cwd(), filePath: "file.ts" },
+			server: {} as never,
+			runtime: {
+				diagnostics: {
+					collect: vi
+						.fn()
+						.mockResolvedValue({ ok: false, code: "diagnostics_timed_out" }),
+				},
+				session: {
+					capabilities: {},
+					documents: { get: () => ({ version: 1, text: "" }) },
+				},
+				connection: {},
+			},
+			entry: {} as never,
+			uri: "file:///file.ts",
+			diagnosticGeneration: 0,
+		};
+		const service = {
+			readDiagnostics: vi.fn(async (_ctx, _path, work) => [
+				{ serverId: "primary", value: await work(operation) },
+			]),
+		} as unknown as TrustedOperationService;
+		const result = await diagnostics(
+			service,
+			{} as ExtensionContext,
+			{ filePath: "file.ts" },
+			undefined,
+		);
+		expect(result.details).toMatchObject({ code: "diagnostics_timed_out" });
+	});
+
 	it("retries once when didOpen reports a closed transport", async () => {
 		directory = await mkdtemp(join(tmpdir(), "pi-lsp-notify-retry-"));
 		const filePath = join(directory, "file.ts");

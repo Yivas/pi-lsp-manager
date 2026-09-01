@@ -1,43 +1,85 @@
 # pi-lsp-manager
 
-`pi-lsp-manager` is a planned [Pi](https://pi.dev) extension for resolving, installing, and running language servers only when an LSP operation needs them.
+`pi-lsp-manager` is a [Pi](https://pi.dev) extension that resolves, installs, and reuses language servers only when an LSP operation needs them.
+
+It adds diagnostics, navigation, symbols, guarded rename, and guarded code-action application without replacing the formatter, linter, type checker, test suite, or CI owned by the repository.
 
 ## Status
 
-The project is in design. There is no installable package, supported release, stable configuration contract, or user support during this phase. Design documentation and focused contributions are welcome, but they do not create a support commitment.
+The implementation is a pre-release candidate. It remains version `0.0.0` and is not published to npm. The TypeScript server fixture and platform matrix must pass before the first release is proposed.
 
-## Project mode
+The v1 catalog contains TypeScript Language Server `5.3.0` with TypeScript `5.9.3`. Compatibility claims are limited to the exact rows in [Language servers](docs/servers.md).
 
-This is an open source collaborative project licensed under MIT. It accepts focused issues and pull requests under the contribution boundaries below. Undisclosed vulnerabilities must use the private reporting channel in [SECURITY.md](SECURITY.md).
+## How it works
 
-## Intended behavior
+1. An LSP tool receives a concrete file in a trusted project.
+2. The extension resolves the project root and selects the highest-priority compatible server for the requested role.
+3. An installed server starts, or the session reuses an existing healthy process.
+4. An authorized operation may install a missing server once through a fixed, integrity-checked recipe.
+5. Read results are bounded and sanitized. Mutations require a fresh preview and revalidate every affected file before commit.
 
-1. An LSP tool receives a concrete file.
-2. The extension resolves the compatible server with the highest configured priority.
-3. An installed server starts or reuses its shared process.
-4. A missing server may be installed once through an allowlisted recipe.
-5. Unsupported or disabled installations return manual instructions without changing the machine.
+Browsing, searching, reading, indexing, status checks, extension detection, and warmup never install software.
 
-Scanning, indexing, reading files, or discovering an extension will not install software. Project configuration is a trust boundary: it never supplies executable commands, packages, URLs, or recipes.
+## Development install
 
-## Planned capabilities
+Until a release exists, install a reviewed local checkout:
 
-- Diagnostics, definitions, references, symbols, and safe rename operations.
-- Lazy server startup with shared clients and idle cleanup.
-- Policy-controlled installation with per-server locks and cancellation.
-- Global and trusted-project configuration with explicit trust boundaries.
-- Windows, macOS, and Ubuntu LTS support only when backed by platform tests.
-- Sanitized failures without file contents, credentials, or private paths.
+```bash
+git clone https://github.com/Yivas/pi-lsp-manager.git
+cd pi-lsp-manager
+npm ci
+pi install /absolute/path/to/pi-lsp-manager
+```
 
-Repository-native formatters, linters, type checkers, tests, and CI remain authoritative.
+Pi packages execute with full user permissions. Review the source and [security model](docs/security-model.md) before installation. Do not install an unreviewed moving branch into a sensitive workspace.
 
-## Security model
+To remove the development package, run `pi list` to copy its recorded source identifier, then pass that identifier to `pi remove`.
 
-Automatic installation will accept only recipes distributed with the extension. LSP tools, post-edit diagnostics, and warmup will require a trusted project. Untrusted project configuration is ignored and cannot start a server or trigger automatic installation. An explicit `/lsp install <id>` may install from an untrusted project, but it uses only the built-in catalog and global policy, reads no project file, and does not start the server. Users will be able to disable automatic installation globally or for individual servers. Do not report undisclosed vulnerabilities in a public issue; follow the [security policy](SECURITY.md).
+## Tools
+
+| Tool | Purpose |
+|-|-|
+| `lsp_diagnostics` | Return current diagnostics for one file. |
+| `lsp_definition` | Find definitions at a UTF-16 position. |
+| `lsp_references` | Find references with bounded output. |
+| `lsp_symbols` | List document symbols. |
+| `lsp_prepare_rename` | Validate and preview a rename target. |
+| `lsp_rename` | Apply the previewed rename as a validated workspace edit. |
+| `lsp_code_actions` | Preview code actions for a range. |
+| `lsp_apply_code_action` | Resolve and apply one stored preview. |
+| `lsp_status` | Show policy, selection, installation, and runtime state. |
+
+Mutation tools reject stale previews, changed files, path escapes, resource operations, overlapping edits, oversized edit sets, and unsupported document versions. Multi-file commits use ordered queues, atomic replacement, and rollback.
+
+## Commands
+
+- `/lsp status` — show the current server and runtime state;
+- `/lsp policy` — show effective trust, network, and installation policy;
+- `/lsp install typescript` — explicitly install the built-in TypeScript recipe without starting it;
+- `/lsp warmup` — start an already installed server for a trusted project; never installs;
+- `/lsp audit` — show sanitized installation decisions.
+
+## Configuration
+
+No configuration is required. Automatic installation and post-edit diagnostics are enabled by default and may be reduced globally or by a trusted project.
+
+See [Configuration](docs/configuration.md) for file locations, merge rules, defaults, and the offline policy.
+
+## Security and privacy
+
+Projects cannot provide executable commands, packages, URLs, registries, integrity values, or installation recipes. Untrusted projects cannot configure, start, warm, or invoke a server. An explicit `/lsp install <id>` is the narrow exception: it may install only a built-in recipe under global policy, without reading project files or starting the server.
+
+The extension collects no telemetry or analytics. Errors, status, and audit output are bounded and must not expose source content, credentials, environment values, or private absolute paths.
+
+Read the full [security model](docs/security-model.md). Report undisclosed vulnerabilities through [SECURITY.md](SECURITY.md), not a public issue.
+
+## Troubleshooting
+
+See [Troubleshooting](docs/troubleshooting.md) for trust failures, offline installation, diagnostic timeouts, runtime failures, rejected mutations, and safe bug-report evidence.
 
 ## Contributing
 
-The project accepts focused documentation and design contributions now, and will review focused implementation proposals as contracts become defined. Use the [feature request form](https://github.com/Yivas/pi-lsp-manager/issues/new?template=feature_request.yml) before proposing new behavior, then read [CONTRIBUTING.md](CONTRIBUTING.md). All interactions follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+Focused issues and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing behavior, and use the feature request form for new capabilities. All interactions follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## License
 

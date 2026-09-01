@@ -17,7 +17,12 @@ async function temporaryDirectory() {
 afterEach(async () => {
 	for (const path of temporaryDirectories.splice(0))
 		await import("node:fs/promises").then(({ rm }) =>
-			rm(path, { recursive: true, force: true }),
+			rm(path, {
+				recursive: true,
+				force: true,
+				maxRetries: 5,
+				retryDelay: 50,
+			}),
 		);
 });
 

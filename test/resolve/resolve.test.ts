@@ -54,6 +54,12 @@ function definition(
 		priority: 100,
 		autoInstall: true,
 		admission: "auto-installable",
+		diagnostics: {
+			pushGraceMs: 5_000,
+			settleMs: 50,
+			pullGraceMs: 250,
+		},
+		compatibility: [],
 		manualHelp: "manual",
 		...overrides,
 	};

@@ -100,6 +100,7 @@ function fromDefinition(definition: ServerDefinition): EffectiveServerConfig {
 		extensions: [...definition.extensions],
 		roles: [...definition.roles],
 		languageIds: [...definition.languageIds],
+		diagnostics: { ...definition.diagnostics },
 		admission: definition.admission,
 		manualHelp: definition.manualHelp,
 	};
@@ -130,6 +131,11 @@ function applyGlobalServer(
 			extensions: [...override.extensions],
 			roles: [...override.roles],
 			languageIds: [...override.languageIds],
+			diagnostics: {
+				pushGraceMs: 5_000,
+				settleMs: 50,
+				pullGraceMs: 250,
+			},
 			admission: "detected",
 			manualHelp: "Install this server manually, then retry.",
 		};
