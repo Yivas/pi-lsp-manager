@@ -6,9 +6,7 @@ It adds diagnostics, navigation, symbols, guarded rename, and guarded code-actio
 
 ## Status
 
-The implementation is a pre-release candidate. It remains version `0.0.0` and is not published to npm. The TypeScript server fixture and platform matrix must pass before the first release is proposed.
-
-The v1 catalog contains TypeScript Language Server `5.3.0` with TypeScript `5.9.3`. Compatibility claims are limited to the exact rows in [Language servers](docs/servers.md).
+Version `0.1.0` is the first supported release line. The v1 catalog contains TypeScript Language Server `5.3.0` with TypeScript `5.9.3`. Compatibility claims are limited to the exact rows in [Language servers](docs/servers.md).
 
 ## How it works
 
@@ -20,20 +18,21 @@ The v1 catalog contains TypeScript Language Server `5.3.0` with TypeScript `5.9.
 
 Browsing, searching, reading, indexing, status checks, extension detection, and warmup never install software.
 
-## Development install
+## Install
 
-Until a release exists, install a reviewed local checkout:
+Install the exact release from npm:
 
 ```bash
-git clone https://github.com/Yivas/pi-lsp-manager.git
-cd pi-lsp-manager
-npm ci
-pi install /absolute/path/to/pi-lsp-manager
+pi install npm:pi-lsp-manager@0.1.0
 ```
 
-Pi packages execute with full user permissions. Review the source and [security model](docs/security-model.md) before installation. Do not install an unreviewed moving branch into a sensitive workspace.
+Pi packages execute with full user permissions. Review the source and [security model](docs/security-model.md) before installation.
 
-To remove the development package, run `pi list` to copy its recorded source identifier, then pass that identifier to `pi remove`.
+To remove the package:
+
+```bash
+pi remove npm:pi-lsp-manager
+```
 
 ## Tools
 

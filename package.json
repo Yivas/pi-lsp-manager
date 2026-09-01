@@ -1,7 +1,6 @@
 {
   "name": "pi-lsp-manager",
-  "version": "0.0.0",
-  "private": true,
+  "version": "0.1.0",
   "description": "A policy-controlled language server manager for Pi.",
   "license": "MIT",
   "repository": {
@@ -26,6 +25,7 @@
     "src",
     "docs",
     "README.md",
+    "CHANGELOG.md",
     "LICENSE",
     "SECURITY.md"
   ],
@@ -55,5 +55,13 @@
     "typescript": "5.9.3",
     "typescript-language-server": "5.3.0",
     "vitest": "3.2.7"
+  },
+  "homepage": "https://github.com/Yivas/pi-lsp-manager#readme",
+  "bugs": {
+    "url": "https://github.com/Yivas/pi-lsp-manager/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
   }
 }

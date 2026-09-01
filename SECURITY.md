@@ -4,10 +4,10 @@
 
 | Version or line | Support status |
 |-|-|
+| `0.1.x` | Supported |
 | Development `main` | Security fixes target the latest commit on a best-effort basis |
-| Published releases | None exist yet |
 
-The table will list maintained release lines after the first publication. The development candidate is tested only against the exact host and TypeScript rows in [Language servers](docs/servers.md); those rows are compatibility evidence, not a published support lifetime.
+The supported line is tested only against the exact host and TypeScript rows in [Language servers](docs/servers.md). Those rows are compatibility evidence, not a promise to support every release of the listed operating systems.
 
 ## Report a vulnerability
 
