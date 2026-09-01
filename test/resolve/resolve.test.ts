@@ -1,4 +1,11 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+	mkdtemp,
+	mkdir,
+	realpath,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -19,7 +26,9 @@ import { selectServers } from "../../src/resolve/server.js";
 const temporaryDirectories: string[] = [];
 
 async function fixture(): Promise<string> {
-	const directory = await mkdtemp(join(tmpdir(), "pi-lsp-manager-"));
+	const directory = await realpath(
+		await mkdtemp(join(tmpdir(), "pi-lsp-manager-")),
+	);
 	temporaryDirectories.push(directory);
 	return directory;
 }
@@ -140,6 +149,24 @@ describe("file resolution", () => {
 			ok: false,
 			code: "file_outside_workspace",
 		});
+	});
+
+	it("accepts relative and canonical absolute paths through a workspace alias", async () => {
+		const workspace = await fixture();
+		const aliasParent = await fixture();
+		const alias = join(aliasParent, "workspace-alias");
+		await symlink(
+			workspace,
+			alias,
+			process.platform === "win32" ? "junction" : "dir",
+		);
+		const source = await makeFile(workspace, "source.ts");
+		for (const input of ["source.ts", source]) {
+			expect(await resolveFile(alias, input)).toMatchObject({
+				ok: true,
+				value: { workspacePath: workspace, filePath: source },
+			});
+		}
 	});
 
 	it("canonicalizes an internal symlink and exposes explicit canonical containment", async () => {

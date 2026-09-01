@@ -48,14 +48,19 @@ export async function resolveFile(
 	cwd: string,
 	inputPath: string,
 ): Promise<Result<ResolvedFile>> {
+	const lexicalWorkspacePath = resolve(cwd);
 	let workspacePath: string;
 	try {
-		workspacePath = await realpath(cwd);
+		workspacePath = await realpath(lexicalWorkspacePath);
 	} catch {
 		return { ok: false, code: "file_not_found" };
 	}
-	const requestedPath = resolve(workspacePath, stripSingleAtPrefix(inputPath));
-	if (!isWithin(workspacePath, requestedPath)) {
+	const strippedInput = stripSingleAtPrefix(inputPath);
+	const requestedPath = resolve(lexicalWorkspacePath, strippedInput);
+	if (
+		!isAbsolute(strippedInput) &&
+		!isWithin(lexicalWorkspacePath, requestedPath)
+	) {
 		return { ok: false, code: "file_outside_workspace" };
 	}
 	let filePath: string;
