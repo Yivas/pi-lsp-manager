@@ -16,11 +16,13 @@ import {
 	codeActions,
 	CodeActionPreviews,
 } from "../../src/tools/code-actions-preview.js";
+import { applyCodeAction } from "../../src/tools/apply-code-action.js";
 import { definition } from "../../src/tools/definition.js";
 import { diagnostics } from "../../src/tools/diagnostics.js";
 import { createPostEditHandler } from "../../src/tools/post-edit.js";
 import { prepareRename } from "../../src/tools/prepare-rename.js";
 import { references } from "../../src/tools/references.js";
+import { rename } from "../../src/tools/rename.js";
 import { TrustedOperationService } from "../../src/tools/shared.js";
 import { symbols } from "../../src/tools/symbols.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -384,6 +386,155 @@ describe("semantic tools against the owned stdio fake LSP", () => {
 			const result = await run(service, ctx, filePath);
 			expect(starts).toBe(2);
 			expect(result.details?.code).toBe("ok");
+		},
+		20_000,
+	);
+
+	it("applies real fake-LSP rename and previewed code action without retrying mutations", async () => {
+		directory = await mkdtemp(join(tmpdir(), "pi-lsp-mutation-tools-"));
+		const filePath = join(directory, "mutate.ts");
+		await writeFile(filePath, "alpha\nreference\n", "utf8");
+		pool = new RuntimePool();
+		const fake = config.servers.fake;
+		if (!fake) throw new Error("Expected fake server.");
+		const mutationConfig: EffectiveConfig = {
+			...config,
+			servers: {
+				fake: {
+					...fake,
+					roles: ["diagnostics", "semantic", "mutation"],
+					initialization: { resolveCodeAction: true },
+				},
+			},
+		};
+		const service = new TrustedOperationService({
+			coordinator: () => undefined,
+			pool: () => pool,
+			load: async () => ({
+				config: mutationConfig,
+				paths,
+				globalLayer: "absent",
+				projectLayer: "absent",
+			}),
+			resolveCommand: async () => process.execPath,
+			start: NodeLspRuntimeSession.start,
+		});
+		const ctx = {
+			cwd: directory,
+			signal: undefined,
+			isProjectTrusted: () => true,
+		} as never;
+		expect(
+			text(
+				await rename(
+					service,
+					ctx,
+					{ filePath, line: 1, character: 0, newName: "renamed" },
+					undefined,
+				),
+			).mutation,
+		).toMatchObject({ status: "applied" });
+		expect(await readFile(filePath, "utf8")).toBe("renamedlpha\nreference\n");
+		const previews = new CodeActionPreviews();
+		const preview = text(
+			await codeActions(service, previews, ctx, { filePath }, undefined),
+		);
+		const action = (preview.codeActions as Array<{ id: string }>)[0];
+		if (!action) throw new Error("Expected code action preview.");
+		expect(
+			text(
+				await applyCodeAction(
+					service,
+					previews,
+					ctx,
+					{ filePath, previewId: action.id },
+					undefined,
+				),
+			).mutation,
+		).toMatchObject({ status: "applied" });
+		expect(await readFile(filePath, "utf8")).toBe("Renamedlpha\nreference\n");
+		const stale = await applyCodeAction(
+			service,
+			previews,
+			ctx,
+			{ filePath, previewId: action.id },
+			undefined,
+		);
+		expect(stale.details?.code).toBe("invalid_file");
+	}, 20_000);
+
+	it.each(["textDocument/rename", "codeAction/resolve"] as const)(
+		"does not retry a real mutation crash in %s",
+		async (method) => {
+			directory = await mkdtemp(join(tmpdir(), "pi-lsp-mutation-crash-"));
+			const filePath = join(directory, "crash.ts");
+			const marker = join(directory, "mutation-crashed.marker");
+			const original = "alpha\nreference\n";
+			await writeFile(filePath, original, "utf8");
+			pool = new RuntimePool();
+			const fake = config.servers.fake;
+			if (!fake) throw new Error("Expected fake server.");
+			const mutationConfig: EffectiveConfig = {
+				...config,
+				servers: {
+					fake: {
+						...fake,
+						roles: ["diagnostics", "semantic", "mutation"],
+						initialization: {
+							resolveCodeAction: method === "codeAction/resolve",
+							crashOnceMethod: method,
+							crashOnceMarker: marker,
+						},
+					},
+				},
+			};
+			let starts = 0;
+			const service = new TrustedOperationService({
+				coordinator: () => undefined,
+				pool: () => pool,
+				load: async () => ({
+					config: mutationConfig,
+					paths,
+					globalLayer: "absent",
+					projectLayer: "absent",
+				}),
+				resolveCommand: async () => process.execPath,
+				start: async (options) => {
+					starts += 1;
+					return NodeLspRuntimeSession.start(options);
+				},
+			});
+			const ctx = {
+				cwd: directory,
+				signal: undefined,
+				isProjectTrusted: () => true,
+			} as never;
+			if (method === "textDocument/rename") {
+				const result = await rename(
+					service,
+					ctx,
+					{ filePath, line: 1, character: 0, newName: "renamed" },
+					undefined,
+				);
+				expect(result.details?.code).toBe("runtime_failed");
+			} else {
+				const previews = new CodeActionPreviews();
+				const preview = text(
+					await codeActions(service, previews, ctx, { filePath }, undefined),
+				);
+				const action = (preview.codeActions as Array<{ id: string }>)[0];
+				if (!action) throw new Error("Expected code action preview.");
+				const result = await applyCodeAction(
+					service,
+					previews,
+					ctx,
+					{ filePath, previewId: action.id },
+					undefined,
+				);
+				expect(result.details?.code).toBe("runtime_failed");
+			}
+			expect(starts).toBe(1);
+			expect(await readFile(filePath, "utf8")).toBe(original);
 		},
 		20_000,
 	);

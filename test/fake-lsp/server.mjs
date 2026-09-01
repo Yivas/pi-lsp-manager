@@ -11,6 +11,7 @@ let pushOnly = false;
 let unversionedDiagnostics = false;
 let crashOnceMethod;
 let crashOnceMarker;
+let resolveCodeAction = false;
 function crashOnce(method) {
   if (crashOnceMethod !== method || !crashOnceMarker || existsSync(crashOnceMarker)) return false;
   writeFileSync(crashOnceMarker, method);
@@ -22,6 +23,7 @@ connection.onRequest("initialize", async (params) => {
   unversionedDiagnostics = params?.initializationOptions?.unversionedDiagnostics === true;
   crashOnceMethod = params?.initializationOptions?.crashOnceMethod;
   crashOnceMarker = params?.initializationOptions?.crashOnceMarker;
+  resolveCodeAction = params?.initializationOptions?.resolveCodeAction === true;
   if (params?.initializationOptions?.delayInitialize) {
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
@@ -36,7 +38,7 @@ connection.onRequest("initialize", async (params) => {
       documentSymbolProvider: true,
       workspaceSymbolProvider: true,
       renameProvider: { prepareProvider: true },
-      codeActionProvider: true,
+      codeActionProvider: resolveCodeAction ? { resolveProvider: true } : true,
       ...(pushOnly ? {} : { diagnosticProvider: { interFileDependencies: false, workspaceDiagnostics: false } }),
       textDocumentSync: 1,
     },
@@ -83,10 +85,20 @@ connection.onRequest("textDocument/prepareRename", () => {
   if (crashOnce("textDocument/prepareRename")) return new Promise(() => undefined);
   return { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } };
 });
+connection.onRequest("textDocument/rename", (params) => {
+  if (crashOnce("textDocument/rename")) return new Promise(() => undefined);
+  return { changes: { [lastUri]: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: params?.newName ?? "renamed" }] } };
+});
 connection.onRequest("textDocument/codeAction", (params) => {
   if (crashOnce("textDocument/codeAction")) return new Promise(() => undefined);
   if ((params?.range?.end?.line ?? 0) < 1 || (params?.context?.diagnostics?.length ?? 0) < 1) return [];
-  return [{ title: "Fake fix", kind: "quickfix", edit: { changes: {} } }];
+  return [resolveCodeAction
+    ? { title: "Fake resolved fix", kind: "quickfix", data: { fake: true } }
+    : { title: "Fake fix", kind: "quickfix", edit: { changes: { [lastUri]: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: "F" }] } } }];
+});
+connection.onRequest("codeAction/resolve", (action) => {
+  if (crashOnce("codeAction/resolve")) return new Promise(() => undefined);
+  return { ...action, edit: { changes: { [lastUri]: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: "R" }] } } };
 });
 connection.onRequest("state", () => events);
 connection.onRequest("late", (_params, token) => new Promise((resolve) => {

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { prepareControlledNpmFiles } from "../../src/install/launch.js";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,10 +20,26 @@ async function temporaryDirectory() {
 	return path;
 }
 afterEach(async () => {
-	for (const path of temporaryDirectories.splice(0))
-		await import("node:fs/promises").then(({ rm }) =>
-			rm(path, { recursive: true, force: true }),
-		);
+	for (const path of temporaryDirectories.splice(0)) {
+		let removed = false;
+		for (let attempt = 0; attempt < 6 && !removed; attempt += 1) {
+			try {
+				await rm(path, { recursive: true, force: true });
+				removed = true;
+			} catch (error) {
+				if (
+					!(error instanceof Error) ||
+					!("code" in error) ||
+					!["EBUSY", "EPERM", "ENOTEMPTY"].includes(
+						String((error as NodeJS.ErrnoException).code),
+					)
+				)
+					throw error;
+				await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+			}
+		}
+		if (!removed) await rm(path, { recursive: true, force: true });
+	}
 });
 
 function allowedDecision() {

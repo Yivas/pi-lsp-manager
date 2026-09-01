@@ -28,6 +28,7 @@ export interface StoredCodeActionPreview {
 	hash: string;
 	filePath: string;
 	serverId: string;
+	session?: object;
 	action: unknown;
 }
 /** Session-local preview store; 02.05 will consume IDs only after revalidation. */
@@ -65,6 +66,23 @@ export class CodeActionPreviews {
 		return id;
 	}
 
+	public take(
+		id: string,
+		expected: Omit<StoredCodeActionPreview, "action">,
+	): unknown | undefined {
+		this.pruneExpired();
+		const value = this.values.get(id);
+		if (
+			value?.hash !== expected.hash ||
+			value.filePath !== expected.filePath ||
+			value.serverId !== expected.serverId ||
+			value.session !== expected.session
+		)
+			return undefined;
+		this.values.delete(id);
+		return value.action;
+	}
+
 	public get(
 		id: string,
 		expected: Omit<StoredCodeActionPreview, "action">,
@@ -73,7 +91,8 @@ export class CodeActionPreviews {
 		const value = this.values.get(id);
 		return value?.hash === expected.hash &&
 			value.filePath === expected.filePath &&
-			value.serverId === expected.serverId
+			value.serverId === expected.serverId &&
+			(expected.session === undefined || value.session === expected.session)
 			? value.action
 			: undefined;
 	}
@@ -159,6 +178,7 @@ export async function codeActions(
 						hash,
 						filePath: operation.target.filePath,
 						serverId: operation.server.id,
+						session: operation.runtime,
 						action,
 					}),
 					title: action.title as string,

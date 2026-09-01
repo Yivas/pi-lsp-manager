@@ -10,11 +10,16 @@ import {
 	CodeActionPreviews,
 	codeActionsSchema,
 } from "./tools/code-actions-preview.js";
+import {
+	applyCodeAction,
+	applyCodeActionSchema,
+} from "./tools/apply-code-action.js";
 import { definition, definitionSchema } from "./tools/definition.js";
 import { diagnostics, diagnosticsSchema } from "./tools/diagnostics.js";
 import { createPostEditHandler } from "./tools/post-edit.js";
 import { prepareRename, prepareRenameSchema } from "./tools/prepare-rename.js";
 import { references, referencesSchema } from "./tools/references.js";
+import { rename, renameSchema } from "./tools/rename.js";
 import { TrustedOperationService } from "./tools/shared.js";
 import { status, statusSchema } from "./tools/status.js";
 import { symbols, symbolsSchema } from "./tools/symbols.js";
@@ -130,6 +135,23 @@ export default function registerExtension(pi: ExtensionAPI): void {
 		parameters: codeActionsSchema,
 		execute: (_id, input, signal, _update, ctx) =>
 			codeActions(service, previews, ctx, input, signal),
+	});
+	pi.registerTool({
+		name: "lsp_rename",
+		label: "LSP rename",
+		description: "Rename a prepared symbol through a validated workspace edit.",
+		parameters: renameSchema,
+		execute: (_id, input, signal, _update, ctx) =>
+			rename(service, ctx, input, signal),
+	});
+	pi.registerTool({
+		name: "lsp_apply_code_action",
+		label: "Apply LSP code action",
+		description:
+			"Apply one current previewed code action through a validated workspace edit.",
+		parameters: applyCodeActionSchema,
+		execute: (_id, input, signal, _update, ctx) =>
+			applyCodeAction(service, previews, ctx, input, signal),
 	});
 	pi.registerTool({
 		name: "lsp_status",

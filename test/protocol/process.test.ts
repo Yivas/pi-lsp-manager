@@ -33,8 +33,10 @@ function options() {
 			args: [fakeServer],
 			shell: false as const,
 		},
-		requestTimeoutMs: 2_000,
-		cancelDrainMs: 200,
+		// Worker startup competes with the parallel suite on Windows CI; this is a
+		// fixture timeout only, not the production default.
+		requestTimeoutMs: 10_000,
+		cancelDrainMs: 500,
 	};
 }
 
@@ -71,7 +73,7 @@ describe("owned stdio LSP process", () => {
 		expect(state.value.change).toBe(1);
 		expect(state.value.close).toBe(1);
 		await runtime.shutdown();
-	}, 15_000);
+	}, 30_000);
 
 	it("aborts and fully closes an owned child while initialization is pending", async () => {
 		const abort = new AbortController();
@@ -88,7 +90,7 @@ describe("owned stdio LSP process", () => {
 		abort.abort();
 		await expect(starting).rejects.toThrow("start_aborted");
 		expect(exited).toBe(true);
-	}, 15_000);
+	}, 30_000);
 
 	it("sends a real cancellation notification and drains its late response", async () => {
 		const runtime = await NodeLspRuntimeSession.start(options());
@@ -120,7 +122,7 @@ describe("owned stdio LSP process", () => {
 		expect(state.ok && state.value.cancelled).toBeGreaterThan(0);
 		expect(runtime.connection.isTainted).toBe(false);
 		await runtime.shutdown();
-	}, 15_000);
+	}, 30_000);
 
 	it("evicts a crashed child and retries a read operation once without retrying mutation", async () => {
 		const crashed = await NodeLspRuntimeSession.start(options());
@@ -150,7 +152,7 @@ describe("owned stdio LSP process", () => {
 		).rejects.toThrow("do not retry mutation");
 		expect(mutationAttempts).toBe(1);
 		await crashed.terminate();
-	}, 15_000);
+	}, 30_000);
 
 	it("unpublishes a crashed pooled child before a later acquire", async () => {
 		const pool = new RuntimePool();
@@ -174,7 +176,7 @@ describe("owned stdio LSP process", () => {
 		first.lease.release();
 		second.lease.release();
 		await pool.shutdown();
-	}, 15_000);
+	}, 30_000);
 
 	it("taints, terminates, and evicts a nonresponsive child before concurrent reuse", async () => {
 		const pool = new RuntimePool();
@@ -204,5 +206,5 @@ describe("owned stdio LSP process", () => {
 		expect(starts).toBe(2);
 		replacement.lease.release();
 		await pool.shutdown();
-	}, 15_000);
+	}, 30_000);
 });

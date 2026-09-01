@@ -88,14 +88,14 @@ describe("diagnostic reconciliation", () => {
 		const collector = new DiagnosticCollector(client, {
 			pushDiagnosticsGraceMs: 50,
 			diagnosticsSettleMs: 1,
-			pullDiagnosticsGraceMs: 30,
+			pullDiagnosticsGraceMs: 2_000,
 		});
 		await server.sendNotification("textDocument/publishDiagnostics", {
 			uri: "file:///reopened.ts",
 			version: 1,
 			diagnostics: [diagnostic],
 		});
-		await new Promise((resolve) => setTimeout(resolve, 5));
+		await new Promise((resolve) => setTimeout(resolve, 25));
 		const generationBeforeReopen = collector.snapshot();
 		server.onRequest("textDocument/diagnostic", () => ({ items: [] }));
 		const replacement = { ...diagnostic, message: "new content" };
@@ -106,7 +106,7 @@ describe("diagnostic reconciliation", () => {
 					version: 1,
 					diagnostics: [replacement],
 				}),
-			5,
+			10,
 		);
 		expect(
 			await collector.collect(

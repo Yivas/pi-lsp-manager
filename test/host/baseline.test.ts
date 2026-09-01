@@ -76,6 +76,8 @@ describe("Pi host baseline", () => {
 			"lsp_symbols",
 			"lsp_prepare_rename",
 			"lsp_code_actions",
+			"lsp_rename",
+			"lsp_apply_code_action",
 			"lsp_status",
 		]);
 		expect(vi.getTimerCount()).toBe(0);
