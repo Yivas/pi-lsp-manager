@@ -1,0 +1,54 @@
+---
+title: Scan files with batch diagnostics
+description: Run bounded diagnostics across selected paths and interpret omissions, truncation, and partial failures.
+---
+
+Use the batch form of `lsp_diagnostics` to scan selected workspace paths or the trusted workspace:
+
+```text
+lsp_diagnostics({"paths":["src","test"],"fileLimit":100,"limit":100})
+```
+
+Omit `paths` to discover supported files from the workspace root. Use `servers` only when you need specific effective server IDs, and use `severity` to filter the rendered result without changing what the server reports.
+
+## Read the complete result
+
+A batch result can contain useful diagnostics even when other files or server groups fail. Inspect these fields together:
+
+- `filesScanned` and `filesChecked` distinguish discovery from successful checks.
+- `serversUsed` identifies routes that ran.
+- `truncated` shows that a bound stopped collection.
+- `omissions` lists skipped paths and reasons.
+- `failures` groups server errors with affected relative paths.
+
+Common omission reasons are `outside_workspace`, `missing`, `symlink`, `non_regular`, `directory_excluded`, `file_too_large`, and `unsupported_file`. A failure for one server group does not hide successful results from another group.
+
+## Know the fixed bounds
+
+| Bound | Maximum |
+|-|-|
+| Input paths | 32 |
+| Accepted files | 100 |
+| Filesystem entries inspected | 10,000 |
+| Document size | 4 MiB |
+| Diagnostics returned | 100 |
+| Output `limit` | 100 |
+
+Discovery canonicalizes and sorts paths, does not follow symlinks, and applies built-in plus configured directory exclusions. An explicitly supplied directory is still traversed when its own name appears in the exclusion set; matching descendants remain excluded.
+
+:::note[Batch output can be partial]
+Treat diagnostics from successful groups as valid. Review `omissions`, `failures`, and `truncated` before deciding that the scan covered the whole selection.
+:::
+
+## Recover from failures
+
+- For `untrusted_project`, review and trust the project before retrying.
+- For `server_unavailable`, inspect `/lsp status` and the effective manual route.
+- For `diagnostics_timed_out`, review timing and server health; do not increase every bound without a focused reason.
+- For repeated runtime failures, restart Pi. Read operations may retry once, but mutations never do.
+
+Continue with [troubleshooting](/pi-lsp-manager/operations/troubleshooting/) when a stable code identifies the failing boundary.
+
+## Canonical source
+
+[Batch-diagnostics behavior and limits](https://github.com/Yivas/pi-lsp-manager/blob/main/docs/troubleshooting.md)

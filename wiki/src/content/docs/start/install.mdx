@@ -1,0 +1,41 @@
+---
+title: Install the extension
+description: Install the published extension and understand project trust before starting a language server.
+---
+
+Install the published `0.2.0` extension with Pi:
+
+```bash
+pi install npm:pi-lsp-manager@0.2.0
+```
+
+Pi packages execute with your user permissions. Review the [source](https://github.com/Yivas/pi-lsp-manager), the [security model](/pi-lsp-manager/operations/security/), and the supported [compatibility rows](/pi-lsp-manager/operations/compatibility/) before installing.
+
+## Trust the project
+
+Open the project in Pi and trust it only after review. Until Pi marks it trusted, the extension does not read project configuration, resolve or start servers, run LSP tools, warm up servers, or run post-edit diagnostics.
+
+The narrow exception is `/lsp install <id>`. It may install a built-in server under global policy without reading project files or starting that server.
+
+## Confirm policy and status
+
+Use these commands after installation:
+
+```text
+/lsp policy
+/lsp status
+```
+
+`lsp_status` returns the same policy and sanitized server state in a tool result. It does not reveal private paths, executable arguments, or route environment values.
+
+## Remove the package
+
+```bash
+pi remove npm:pi-lsp-manager
+```
+
+Next, [run diagnostics for a TypeScript file](/pi-lsp-manager/start/first-diagnostics/).
+
+## Canonical source
+
+[Installation and security overview](https://github.com/Yivas/pi-lsp-manager/blob/main/README.md)

@@ -1,0 +1,61 @@
+---
+title: pi-lsp-manager
+description: Install, configure, and operate policy-controlled language servers in Pi.
+hero:
+  title: pi-lsp-manager
+  tagline: Language servers for Pi, with explicit control over trust, installation, processes, and edits.
+  actions:
+    - text: Install the extension
+      link: /pi-lsp-manager/start/install/
+      icon: right-arrow
+      variant: primary
+    - text: Read the security model
+      link: /pi-lsp-manager/operations/security/
+      icon: right-arrow
+      variant: minimal
+---
+
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+`pi-lsp-manager` resolves and reuses language servers for Pi. Version `0.2.0` provides diagnostics, navigation, symbols, guarded rename, and guarded source-action application without replacing the repository's formatter, linter, type checker, tests, or CI.
+
+:::caution[Language servers are trusted local programs]
+Language servers run with Pi's operating-system permissions. Trust a project only after reviewing it. The extension limits when a server is installed, started, or allowed to write; it does not sandbox the server.
+:::
+
+## Start here
+
+<CardGrid>
+  <LinkCard
+    title="Install pi-lsp-manager"
+    href="/pi-lsp-manager/start/install/"
+    description="Review the permission boundary, install the published package, and inspect policy."
+  />
+  <LinkCard
+    title="Run your first diagnostics"
+    href="/pi-lsp-manager/start/first-diagnostics/"
+    description="Check one trusted TypeScript or JavaScript file and interpret an empty or failed result."
+  />
+  <LinkCard
+    title="Configure a manual route"
+    href="/pi-lsp-manager/guides/manual-routes/"
+    description="Add a reviewed global executable route without creating an installation recipe or support claim."
+  />
+</CardGrid>
+
+## Choose your task
+
+- [Scan a bounded set of files](/pi-lsp-manager/guides/batch-diagnostics/) and keep useful partial results.
+- [Preview and apply source actions](/pi-lsp-manager/guides/source-actions/) through the guarded mutation pipeline.
+- [Inspect tools and commands](/pi-lsp-manager/reference/tools-and-commands/) before automating a workflow.
+- [Recover from installation or runtime failures](/pi-lsp-manager/operations/troubleshooting/) using sanitized status and audit output.
+
+## Current support boundary
+
+The built-in TypeScript route is the only route that can be installed automatically and the only route with platform-tested compatibility rows. Other catalog entries are candidates: review and configure them as global manual routes before use. A listed or detected executable is not a support claim.
+
+Read the [verified compatibility rows](/pi-lsp-manager/operations/compatibility/) before relying on a platform or server combination.
+
+## Canonical source
+
+[Published `0.2.0` README](https://github.com/Yivas/pi-lsp-manager/blob/main/README.md)

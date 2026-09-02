@@ -4,6 +4,10 @@
 
 It adds diagnostics, navigation, symbols, guarded rename, and guarded code-action application without replacing the formatter, linter, type checker, test suite, or CI owned by the repository.
 
+## Documentation
+
+Read the full documentation at [yivas.github.io/pi-lsp-manager](https://yivas.github.io/pi-lsp-manager/).
+
 ## Status
 
 Version `0.2.0` adds the manual catalog, complete global routes, batch diagnostics, source-fix workflow, and expanded status fields. TypeScript Language Server `5.3.0` with TypeScript `5.9.3` remains the only auto-installable and platform-tested route; compatibility claims are limited to the exact rows in [Language servers](docs/servers.md).

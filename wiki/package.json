@@ -1,0 +1,21 @@
+{
+  "name": "pi-lsp-manager-wiki",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "preview": "astro preview",
+    "check": "node scripts/check-links.mjs",
+    "check:built": "node scripts/check-built.mjs",
+    "build": "astro build && npm run check:built",
+    "test": "node --test scripts/check-links.node-test.mjs"
+  },
+  "devDependencies": {
+    "@astrojs/starlight": "0.41.11",
+    "astro": "7.2.10"
+  }
+}

@@ -1,0 +1,40 @@
+---
+title: Configure reviewed manual routes
+description: Configure a reviewed global executable route without creating an installation or support claim.
+---
+
+Manual routes belong in the global `pi-lsp-manager.json` file in Pi's agent directory. A trusted project may only disable or reduce an existing route; it cannot define commands, arguments, environment values, packages, or recipes.
+
+## Review before enabling
+
+Treat an existing editor or extension configuration as review input, not as a file this extension imports. Check the server's documentation and the executable on the machine, then enter every value deliberately. Commands are an executable plus argv, never a shell string.
+
+```json
+{
+  "version": 1,
+  "servers": {
+    "rust-analyzer": {
+      "command": "rust-analyzer",
+      "args": [],
+      "extensions": [".rs"],
+      "languageIds": ["rust"],
+      "roles": ["diagnostics", "semantic", "mutation"],
+      "priority": 60,
+      "autoInstall": false,
+      "initialization": {}
+    }
+  }
+}
+```
+
+A new route requires `command`, `args`, `extensions`, `roles`, and `languageIds`. `env`, `initialization`, extension mappings, priority, and diagnostic timing are optional where documented. The process uses the canonical workspace root as its working directory and starts without a shell.
+
+## Limits
+
+Manual routes never receive an internal recipe and cannot be installed by `/lsp install`. Restart or reload Pi after changing global executable settings, then inspect the sanitized effective route with `/lsp status`.
+
+See the full [configuration reference](/pi-lsp-manager/reference/configuration/) and [server catalog](/pi-lsp-manager/reference/servers/).
+
+## Canonical source
+
+[Configuration schema and migration example](https://github.com/Yivas/pi-lsp-manager/blob/main/docs/configuration.md)

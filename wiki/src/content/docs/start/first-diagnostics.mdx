@@ -1,0 +1,33 @@
+---
+title: Run your first diagnostics
+description: Run diagnostics for one trusted TypeScript or JavaScript file and recover when no server starts.
+---
+
+After Pi trusts the project, call `lsp_diagnostics` with a workspace-relative file path:
+
+```text
+lsp_diagnostics({"filePath":"src/index.ts"})
+```
+
+The legacy `filePath` form checks one supported regular file. A clean file returns an empty diagnostic list. The built-in TypeScript route covers `.ts`, `.tsx`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.mts`, and `.cts`.
+
+## If no server starts
+
+Run:
+
+```text
+/lsp status
+/lsp policy
+```
+
+The TypeScript route is the only automatic-install route. Global policy must leave it enabled, allow automatic installation, and permit `network: "auto"`; the current platform must also match a verified row. The extension does not install candidate routes or manual routes.
+
+If the result is `untrusted_project`, trust the project in Pi. If it is `server_unavailable`, check [troubleshooting](/pi-lsp-manager/operations/troubleshooting/) before changing configuration.
+
+## Next step
+
+Use [batch diagnostics](/pi-lsp-manager/guides/batch-diagnostics/) to scan selected directories, or see the [tool reference](/pi-lsp-manager/reference/tools-and-commands/) for navigation and mutation tools.
+
+## Canonical source
+
+[README quickstart](https://github.com/Yivas/pi-lsp-manager/blob/main/README.md)

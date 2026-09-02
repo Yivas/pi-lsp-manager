@@ -1,0 +1,40 @@
+---
+title: Preview and apply source actions
+description: Preview, review, and safely apply source actions through validated workspace edits.
+---
+
+Use `lsp_code_actions` to preview actions for a file. It never writes:
+
+```text
+lsp_code_actions({"filePath":"src/index.ts"})
+```
+
+`lsp_fix` is a shortcut for source actions. It defaults to `kind: "source.fixAll"` and `write: false`:
+
+```text
+lsp_fix({"filePath":"src/index.ts"})
+```
+
+Use `kind: "source.organizeImports"` when that is the intended action.
+
+## Apply only a current preview
+
+Set `write: true` only when one unambiguous action is expected. The extension writes only if exactly one action is returned. With zero or multiple actions, it writes no bytes and returns previews. Select a preview with `lsp_apply_code_action`:
+
+```text
+lsp_apply_code_action({"previewId":"<returned-preview-id>"})
+```
+
+Previews are tied to the session, server, canonical file, and content hash. Make a new preview if the file changed. The extension rejects stale previews, edits outside the workspace, symlink-boundary escapes, resource operations, overlapping edits, unsupported versions, and oversized edit sets.
+
+## Rename follows the same guarded edit path
+
+Use `lsp_prepare_rename` to check whether the server accepts a position. `lsp_rename` then takes `filePath`, `line`, `character`, and `newName`; it prepares the target again before requesting and validating the workspace edit. It does not consume a `previewId`.
+
+Multi-file commits lock files in canonical order, use atomic replacement, and report recovery artifacts if rollback cannot complete. Stop editing affected files if that happens; preserve the reported relative artifact names.
+
+Read the [security limits](/pi-lsp-manager/operations/security/) and [troubleshooting guidance](/pi-lsp-manager/operations/troubleshooting/) before automating writes.
+
+## Canonical source
+
+[Published tool contract](https://github.com/Yivas/pi-lsp-manager/blob/main/README.md)
