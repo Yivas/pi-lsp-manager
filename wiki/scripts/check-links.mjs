@@ -44,7 +44,7 @@ function routeFor(file) {
 function slugify(heading) {
   return heading
     .replace(/`/g, "")
-    .replace(/<[^>]+>/g, "")
+    .replace(/[<>]/g, "")
     .toLowerCase()
     .trim()
     .replace(/[^\p{L}\p{N}\s-]/gu, "")
@@ -261,9 +261,21 @@ export function checkLinks() {
   }
 
   const sourceLink = "https://github.com/Yivas/pi-lsp-manager";
-  if (!pages.some((page) => page.links.includes(sourceLink))) {
-    errors.push(`critical external link is missing: ${sourceLink}`);
-  }
+  const hasSourceLink = pages.some((page) =>
+    page.links.some((link) => {
+      try {
+        const parsed = new URL(link);
+        return (
+          parsed.protocol === "https:" &&
+          parsed.hostname === "github.com" &&
+          parsed.pathname.replace(/\/$/, "") === "/Yivas/pi-lsp-manager"
+        );
+      } catch {
+        return false;
+      }
+    }),
+  );
+  if (!hasSourceLink) errors.push(`critical external link is missing: ${sourceLink}`);
   return errors;
 }
 
