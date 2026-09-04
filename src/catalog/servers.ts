@@ -129,6 +129,7 @@ const typescript: ServerDefinition = {
 
 export const DEFAULT_SERVERS: readonly ServerDefinition[] = [
 	typescript,
+	candidate("vue", [".vue"], ["vue"], "vue-language-server", ["--stdio"]),
 	candidate(
 		"biome",
 		[".js", ".jsx", ".ts", ".tsx", ".json", ".jsonc", ".css", ".graphql"],

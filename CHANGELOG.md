@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- Built-in Vue Language Server candidate route for `.vue` files using `vue-language-server --stdio`; it remains manual-only and has no compatibility or installation claim.
+
 ## 0.2.0 - 2026-09-01
 
 ### Added

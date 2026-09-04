@@ -11,7 +11,7 @@ The catalog describes routing metadata. It does not download a server, run a pro
 | `tested` | The listed fixture, versions, and platforms passed the project's tests. |
 | `auto-installable` | A tested entry also has a fixed internal recipe that passed integrity, isolation, cancellation, and rollback checks. |
 
-The built-in catalog currently has one `auto-installable` entry and 30 `candidate` entries. It has no built-in `detected` or `tested` entries. `lsp_status` reports `available`, `runnable`, `routeConfigured`, `recipePresent`, and `installable` separately from `admission`.
+The built-in catalog currently has one `auto-installable` entry and 31 `candidate` entries. It has no built-in `detected` or `tested` entries. `lsp_status` reports `available`, `runnable`, `routeConfigured`, `recipePresent`, and `installable` separately from `admission`.
 
 ## Built-in catalog
 
@@ -20,6 +20,7 @@ The following IDs are present in the catalog. Every entry other than `typescript
 | ID | Admission | Manual command and argv | Roles |
 |-|-|-|-|
 | `typescript` | `auto-installable` | `typescript-language-server --stdio` | diagnostics, semantic, mutation |
+| `vue` | candidate | `vue-language-server --stdio` | diagnostics, semantic, mutation |
 | `biome` | candidate | `biome lsp-proxy` | diagnostics |
 | `tailwindcss` | candidate | `tailwindcss-language-server --stdio` | diagnostics |
 | `eslint` | candidate | `vscode-eslint-language-server --stdio` | diagnostics |

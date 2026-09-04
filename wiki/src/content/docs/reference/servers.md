@@ -14,7 +14,7 @@ Catalog metadata does not download, probe, or establish compatibility. A route r
 | `tested` | The listed fixture, versions, and platforms passed project tests. |
 | `auto-installable` | A tested entry with a fixed internal recipe that passed installation controls. |
 
-The built-in catalog has one `auto-installable` entry and 30 candidates. `lsp_status` separately reports availability, route configuration, recipe presence, installability, and admission.
+The built-in catalog has one `auto-installable` entry and 31 candidates. `lsp_status` separately reports availability, route configuration, recipe presence, installability, and admission.
 
 ## Built-in TypeScript route
 
