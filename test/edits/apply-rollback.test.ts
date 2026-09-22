@@ -1,6 +1,7 @@
 import { withFileMutationQueue } from "@earendil-works/pi-coding-agent";
 import {
 	chmod,
+	link,
 	lstat,
 	mkdtemp,
 	readdir,
@@ -19,6 +20,7 @@ import {
 	applyValidatedEdits,
 	type ApplyFileSystem,
 } from "../../src/edits/apply.js";
+import type { StatLike } from "../../src/edits/rollback.js";
 import { normalizeWorkspaceEdit } from "../../src/edits/normalize.js";
 import { validateWorkspaceEdit } from "../../src/edits/validate.js";
 import { afterEach, describe, expect, it } from "vitest";
@@ -45,6 +47,7 @@ const baseFileSystem: ApplyFileSystem = {
 	realpath,
 	writeExclusive: (path, data, mode) =>
 		writeFile(path, data, { flag: "wx", mode }),
+	link,
 	chmod,
 	rename,
 	rm,
@@ -246,6 +249,130 @@ describe("workspace edit application and rollback", () => {
 		},
 	);
 
+	it("rolls back a POSIX replacement that renames then rejects", async () => {
+		const { first, second, validated } = await fixture();
+		const before = await Promise.all([readFile(first), readFile(second)]);
+		let replacementRejected = false;
+		const result = await applyValidatedEdits(validated, {
+			platform: "linux",
+			fileSystem: {
+				...baseFileSystem,
+				rename: async (from, to) => {
+					if (!replacementRejected && from.endsWith(".tmp") && to === second) {
+						replacementRejected = true;
+						await baseFileSystem.rename(from, to);
+						throw new Error("rename completed before rejection");
+					}
+					return baseFileSystem.rename(from, to);
+				},
+			},
+		});
+		expect(result.status).toBe("failed_restored");
+		expect(await Promise.all([readFile(first), readFile(second)])).toEqual(
+			before,
+		);
+		expect(await artifacts()).toEqual([]);
+	});
+
+	it("retains recovery material when a rejected replacement cannot be reconciled", async () => {
+		const { first, validated } = await fixture();
+		let rejected = false;
+		const result = await applyValidatedEdits(validated, {
+			platform: "linux",
+			fileSystem: {
+				...baseFileSystem,
+				rename: async (from, to) => {
+					if (!rejected && from.endsWith(".tmp") && to === first) {
+						rejected = true;
+						await baseFileSystem.rename(from, to);
+						await writeFile(first, "external\n", "utf8");
+						throw new Error("replacement outcome was obscured");
+					}
+					return baseFileSystem.rename(from, to);
+				},
+			},
+		});
+		expect(result.status).toBe("rollback_incomplete");
+		expect(await readFile(first, "utf8")).toBe("external\n");
+		expect(result.files).toEqual(["a.ts"]);
+		expect(result.recoveryArtifacts).toHaveLength(1);
+		expect(result.recoveryArtifacts[0]).toMatch(/\.bak$/);
+		expect(await artifacts()).toEqual(result.recoveryArtifacts);
+	});
+
+	it("reconciles a Windows displaced-target rename that rejects late", async () => {
+		const { first, validated } = await fixture();
+		let rejectedInitialReplace = false;
+		let rejectedDisplacement = false;
+		const result = await applyValidatedEdits(validated, {
+			platform: "win32",
+			fileSystem: {
+				...baseFileSystem,
+				rename: async (from, to) => {
+					if (
+						from.endsWith(".tmp") &&
+						to === first &&
+						!rejectedInitialReplace
+					) {
+						rejectedInitialReplace = true;
+						throw new Error("cannot replace existing target");
+					}
+					if (
+						from === first &&
+						to.includes(".replace-") &&
+						!rejectedDisplacement
+					) {
+						rejectedDisplacement = true;
+						await baseFileSystem.rename(from, to);
+						throw new Error("displacement completed before rejection");
+					}
+					return baseFileSystem.rename(from, to);
+				},
+			},
+		});
+		expect(result.status).toBe("applied");
+		expect(await readFile(first, "utf8")).toBe("Alpha\n");
+		expect(await artifacts()).toEqual([]);
+		expect(rejectedDisplacement).toBe(true);
+	});
+
+	it("rolls back a Windows fallback replacement that renames then rejects", async () => {
+		const { first, validated } = await fixture();
+		const before = await readFile(first);
+		let rejectedInitialReplace = false;
+		let rejectedFallbackReplace = false;
+		const result = await applyValidatedEdits(validated, {
+			platform: "win32",
+			fileSystem: {
+				...baseFileSystem,
+				rename: async (from, to) => {
+					if (
+						from.endsWith(".tmp") &&
+						to === first &&
+						!rejectedInitialReplace
+					) {
+						rejectedInitialReplace = true;
+						throw new Error("cannot replace existing target");
+					}
+					if (
+						from.endsWith(".tmp") &&
+						to === first &&
+						!rejectedFallbackReplace
+					) {
+						rejectedFallbackReplace = true;
+						await baseFileSystem.rename(from, to);
+						throw new Error("fallback replacement completed before rejection");
+					}
+					return baseFileSystem.rename(from, to);
+				},
+			},
+		});
+		expect(result.status).toBe("failed_restored");
+		expect(await readFile(first)).toEqual(before);
+		expect(await artifacts()).toEqual([]);
+		expect(rejectedFallbackReplace).toBe(true);
+	});
+
 	it("never follows a precreated backup symlink", async () => {
 		const { first, second, validated } = await fixture();
 		const before = await Promise.all([readFile(first), readFile(second)]);
@@ -298,7 +425,10 @@ describe("workspace edit application and rollback", () => {
 		expect(await readFile(second)).toEqual(before[1]);
 		expect(result.recoveryArtifacts).toHaveLength(1);
 		expect(result.recoveryArtifacts[0]).toMatch(/\.bak$/);
-		expect(await artifacts()).toEqual(result.recoveryArtifacts);
+		const entries = await readdir(directory ?? "");
+		expect(
+			result.recoveryArtifacts.every((name) => entries.includes(name)),
+		).toBe(true);
 		// The first target was replaced and cannot silently lose its recovery backup.
 		expect(await readFile(first, "utf8")).toBe("Alpha\n");
 	});
@@ -331,7 +461,471 @@ describe("workspace edit application and rollback", () => {
 		expect(await artifacts()).toEqual(result.recoveryArtifacts);
 	});
 
-	it("preserves recovery material when the restore rename fails", async () => {
+	it("does not overwrite an external target change during rollback", async () => {
+		const { first, validated } = await fixture();
+		let targetReplaced = false;
+		let replacementFailed = false;
+		let outputIdentity: StatLike | undefined;
+		const result = await applyValidatedEdits(validated, {
+			platform: "linux",
+			fileSystem: {
+				...baseFileSystem,
+				lstat: async (path): Promise<StatLike> =>
+					path === first && outputIdentity
+						? outputIdentity
+						: (baseFileSystem.lstat(path) as Promise<StatLike>),
+				rename: async (from, to) => {
+					if (!targetReplaced && from.endsWith(".tmp") && to === first) {
+						targetReplaced = true;
+						await baseFileSystem.rename(from, to);
+						outputIdentity = (await baseFileSystem.lstat(first)) as StatLike;
+						return;
+					}
+					if (targetReplaced && !replacementFailed && from.endsWith(".tmp")) {
+						replacementFailed = true;
+						await writeFile(first, "foreign\n", "utf8");
+						throw new Error("late replacement failed");
+					}
+					return baseFileSystem.rename(from, to);
+				},
+			},
+		});
+		expect(result.status).toBe("rollback_incomplete");
+		expect(await readFile(first, "utf8")).toBe("foreign\n");
+		expect(result.recoveryArtifacts).toHaveLength(1);
+		expect(result.recoveryArtifacts[0]).toMatch(/\.bak$/);
+		const entries = await readdir(directory ?? "");
+		expect(
+			result.recoveryArtifacts.every((name) => entries.includes(name)),
+		).toBe(true);
+	});
+
+	it("preserves an external deletion after replacement", async () => {
+		const { first, validated } = await fixture();
+		let replaced = false;
+		let failed = false;
+		const result = await applyValidatedEdits(validated, {
+			platform: "linux",
+			fileSystem: {
+				...baseFileSystem,
+				rename: async (from, to) => {
+					if (!replaced && from.endsWith(".tmp") && to === first) {
+						replaced = true;
+						await baseFileSystem.rename(from, to);
+						return;
+					}
+					if (replaced && !failed && from.endsWith(".tmp")) {
+						failed = true;
+						await rm(first);
+						throw new Error("late replacement failed");
+					}
+					return baseFileSystem.rename(from, to);
+				},
+			},
+		});
+		expect(result.status).toBe("rollback_incomplete");
+		await expect(readFile(first)).rejects.toMatchObject({ code: "ENOENT" });
+		expect(result.recoveryArtifacts).toHaveLength(1);
+		expect(result.recoveryArtifacts[0]).toMatch(/\.bak$/);
+		expect(await artifacts()).toEqual(result.recoveryArtifacts);
+	});
+
+	it("does not overwrite a target created at the rollback replacement boundary", async () => {
+		const { first, validated } = await fixture();
+		let replaced = false;
+		let failed = false;
+		const result = await applyValidatedEdits(validated, {
+			platform: "linux",
+			fileSystem: {
+				...baseFileSystem,
+				rename: async (from, to) => {
+					if (!replaced && from.endsWith(".tmp") && to === first) {
+						replaced = true;
+						await baseFileSystem.rename(from, to);
+						return;
+					}
+					if (replaced && !failed && from.endsWith(".tmp")) {
+						failed = true;
+						throw new Error("late replacement failed");
+					}
+					return baseFileSystem.rename(from, to);
+				},
+				link: async (source, destination) => {
+					if (destination === first)
+						await writeFile(first, "external\n", "utf8");
+					return link(source, destination);
+				},
+			},
+		});
+		expect(result.status).toBe("rollback_incomplete");
+		expect(await readFile(first, "utf8")).toBe("external\n");
+		expect(result.recoveryArtifacts.length).toBeGreaterThan(1);
+		const entries = await readdir(directory ?? "");
+		expect(
+			result.recoveryArtifacts.every((name) => entries.includes(name)),
+		).toBe(true);
+	});
+
+	it("retains recovery files when the filesystem cannot create a hard link", async () => {
+		const { first, validated } = await fixture();
+		let replaced = false;
+		let failed = false;
+		const result = await applyValidatedEdits(validated, {
+			platform: "linux",
+			fileSystem: {
+				...baseFileSystem,
+				rename: async (from, to) => {
+					if (!replaced && from.endsWith(".tmp") && to === first) {
+						replaced = true;
+						await baseFileSystem.rename(from, to);
+						return;
+					}
+					if (replaced && !failed && from.endsWith(".tmp")) {
+						failed = true;
+						throw new Error("late replacement failed");
+					}
+					return baseFileSystem.rename(from, to);
+				},
+				link: async () => {
+					const error = new Error(
+						"hard links unsupported",
+					) as NodeJS.ErrnoException;
+					error.code = "ENOTSUP";
+					throw error;
+				},
+			},
+		});
+		expect(result.status).toBe("rollback_incomplete");
+		await expect(readFile(first)).rejects.toMatchObject({ code: "ENOENT" });
+		expect(result.recoveryArtifacts).toHaveLength(2);
+		const entries = await readdir(directory ?? "");
+		expect(
+			result.recoveryArtifacts.every((name) => entries.includes(name)),
+		).toBe(true);
+	});
+
+	it("reports the cleanup quarantine when deletion fails", async () => {
+		const { validated } = await fixture();
+		const result = await applyValidatedEdits(validated, {
+			fileSystem: {
+				...baseFileSystem,
+				rm: async (path, options) => {
+					if (path.includes(".cleanup-"))
+						throw new Error("quarantine cleanup failed");
+					return baseFileSystem.rm(path, options);
+				},
+			},
+		});
+		expect(result.status).toBe("manual_recovery");
+		const leftovers = await artifacts();
+		expect(result.recoveryArtifacts).toEqual(leftovers);
+		expect(
+			result.recoveryArtifacts.some((name) => name.includes(".cleanup-")),
+		).toBe(true);
+		for (const name of leftovers)
+			await baseFileSystem.rm(join(directory ?? "", name), { force: true });
+	});
+
+	it.each(["EACCES", "EIO"] as const)(
+		"reports rollback quarantine after lstat returns %s",
+		async (code) => {
+			const { first, validated } = await fixture();
+			let replaced = false;
+			let failedCleanupPath: string | undefined;
+			const result = await applyValidatedEdits(validated, {
+				platform: "linux",
+				fileSystem: {
+					...baseFileSystem,
+					lstat: async (path) => {
+						if (path === failedCleanupPath) {
+							const error = new Error(
+								"quarantine inspection failed",
+							) as NodeJS.ErrnoException;
+							error.code = code;
+							throw error;
+						}
+						return baseFileSystem.lstat(path);
+					},
+					rename: async (from, to) => {
+						if (!replaced && from.endsWith(".tmp") && to === first) {
+							replaced = true;
+							await baseFileSystem.rename(from, to);
+							return;
+						}
+						if (replaced && from.endsWith(".tmp"))
+							throw new Error("late replacement failed");
+						if (from.includes(".rollback-") && to.includes(".cleanup-")) {
+							failedCleanupPath = to;
+							await baseFileSystem.rename(from, to);
+							throw new Error("cleanup rename result unavailable");
+						}
+						return baseFileSystem.rename(from, to);
+					},
+				},
+			});
+			if (!failedCleanupPath) throw new Error("Expected quarantine path.");
+			expect(result.status).toBe("rollback_incomplete");
+			const entries = await readdir(directory ?? "");
+			const survivor = failedCleanupPath.split(/[\\/]/).at(-1) ?? "";
+			expect(result.recoveryArtifacts).toContain(survivor);
+			expect(entries).toContain(survivor);
+			expect(
+				result.recoveryArtifacts.every((name) => entries.includes(name)),
+			).toBe(true);
+		},
+	);
+
+	it.each(["EACCES", "EIO"] as const)(
+		"reports normal cleanup quarantine after lstat returns %s",
+		async (code) => {
+			const { validated } = await fixture();
+			let failedCleanupPath: string | undefined;
+			const movedBackups: Array<{ path: string; bytes: Buffer }> = [];
+			const result = await applyValidatedEdits(validated, {
+				fileSystem: {
+					...baseFileSystem,
+					lstat: async (path) => {
+						if (path === failedCleanupPath) {
+							const error = new Error(
+								"quarantine inspection failed",
+							) as NodeJS.ErrnoException;
+							error.code = code;
+							throw error;
+						}
+						return baseFileSystem.lstat(path);
+					},
+					rename: async (from, to) => {
+						if (from.endsWith(".bak") && to.includes(".cleanup-")) {
+							failedCleanupPath = to;
+							movedBackups.push({
+								path: to,
+								bytes: await baseFileSystem.readFile(from),
+							});
+							await baseFileSystem.rename(from, to);
+							throw new Error("cleanup rename result unavailable");
+						}
+						return baseFileSystem.rename(from, to);
+					},
+				},
+			});
+			if (!failedCleanupPath) throw new Error("Expected quarantine path.");
+			expect(result.status).toBe("manual_recovery");
+			const entries = await readdir(directory ?? "");
+			const survivor = failedCleanupPath.split(/[\\/]/).at(-1) ?? "";
+			expect(result.recoveryArtifacts).toContain(survivor);
+			expect(entries).toContain(survivor);
+			expect(
+				result.recoveryArtifacts.every((name) => entries.includes(name)),
+			).toBe(true);
+			for (const backup of movedBackups)
+				expect(await readFile(backup.path)).toEqual(backup.bytes);
+		},
+	);
+
+	it("restores a foreign cleanup replacement from quarantine without deleting it", async () => {
+		const { validated } = await fixture();
+		let replacedArtifact: string | undefined;
+		let quarantinePath: string | undefined;
+		const result = await applyValidatedEdits(validated, {
+			fileSystem: {
+				...baseFileSystem,
+				rename: async (from, to) => {
+					if (
+						!replacedArtifact &&
+						from.endsWith(".bak") &&
+						to.includes(".cleanup-")
+					) {
+						replacedArtifact = from;
+						quarantinePath = to;
+						await rm(from);
+						await writeFile(from, "foreign backup\n", "utf8");
+					}
+					return baseFileSystem.rename(from, to);
+				},
+			},
+		});
+		if (!replacedArtifact || !quarantinePath)
+			throw new Error("Expected a replaced cleanup artifact.");
+		expect(result.status).toBe("manual_recovery");
+		expect(await readFile(replacedArtifact, "utf8")).toBe("foreign backup\n");
+		expect(await readFile(quarantinePath, "utf8")).toBe("foreign backup\n");
+		expect(result.recoveryArtifacts).toContain(
+			quarantinePath.split(/[\\/]/).at(-1),
+		);
+		expect(result.recoveryArtifacts).toContain(
+			replacedArtifact.split(/[\\/]/).at(-1),
+		);
+		expect(await artifacts()).toEqual(result.recoveryArtifacts);
+	});
+
+	it("keeps both files when a target races the cleanup hard-link restoration", async () => {
+		const { validated } = await fixture();
+		let replacedArtifact: string | undefined;
+		let quarantinePath: string | undefined;
+		let racedLink = false;
+		const result = await applyValidatedEdits(validated, {
+			fileSystem: {
+				...baseFileSystem,
+				rename: async (from, to) => {
+					if (
+						!replacedArtifact &&
+						from.endsWith(".bak") &&
+						to.includes(".cleanup-")
+					) {
+						replacedArtifact = from;
+						quarantinePath = to;
+						await rm(from);
+						await writeFile(from, "foreign backup\n", "utf8");
+					}
+					return baseFileSystem.rename(from, to);
+				},
+				link: async (source, destination) => {
+					if (destination === replacedArtifact && !racedLink) {
+						racedLink = true;
+						await writeFile(destination, "concurrent file\n", "utf8");
+					}
+					return baseFileSystem.link(source, destination);
+				},
+			},
+		});
+		if (!replacedArtifact || !quarantinePath)
+			throw new Error("Expected a replaced cleanup artifact.");
+		expect(result.status).toBe("manual_recovery");
+		expect(await readFile(replacedArtifact, "utf8")).toBe("concurrent file\n");
+		expect(await readFile(quarantinePath, "utf8")).toBe("foreign backup\n");
+		expect(result.recoveryArtifacts).toContain(
+			replacedArtifact.split(/[\\/]/).at(-1),
+		);
+		expect(result.recoveryArtifacts).toContain(
+			quarantinePath.split(/[\\/]/).at(-1),
+		);
+		expect(await artifacts()).toEqual(result.recoveryArtifacts);
+	});
+
+	it("reconciles a rollback quarantine moved before rename rejects", async () => {
+		const { first, second, validated } = await fixture();
+		const before = await Promise.all([readFile(first), readFile(second)]);
+		let rejectedReplacement = false;
+		let rejectedQuarantine = false;
+		const result = await applyValidatedEdits(validated, {
+			platform: "linux",
+			fileSystem: {
+				...baseFileSystem,
+				rename: async (from, to) => {
+					if (!rejectedReplacement && from.endsWith(".tmp") && to === second) {
+						rejectedReplacement = true;
+						throw new Error("late replacement failed");
+					}
+					if (
+						!rejectedQuarantine &&
+						from === first &&
+						to.includes(".rollback-")
+					) {
+						rejectedQuarantine = true;
+						await baseFileSystem.rename(from, to);
+						throw new Error("rollback quarantine completed before rejection");
+					}
+					return baseFileSystem.rename(from, to);
+				},
+			},
+		});
+		expect(result.status).toBe("failed_restored");
+		expect(await Promise.all([readFile(first), readFile(second)])).toEqual(
+			before,
+		);
+		expect(result.recoveryArtifacts).toEqual([]);
+		expect(await artifacts()).toEqual([]);
+		expect(rejectedQuarantine).toBe(true);
+	});
+
+	it("does not report quarantine names after rm deletes before rejecting", async () => {
+		const { validated } = await fixture();
+		const removedQuarantines: string[] = [];
+		const result = await applyValidatedEdits(validated, {
+			fileSystem: {
+				...baseFileSystem,
+				rm: async (path, options) => {
+					if (path.includes(".cleanup-")) {
+						removedQuarantines.push(path);
+						await baseFileSystem.rm(path, options);
+						throw new Error("late cleanup failure");
+					}
+					return baseFileSystem.rm(path, options);
+				},
+			},
+		});
+		expect(result.status).toBe("applied");
+		expect(result.recoveryArtifacts).toEqual([]);
+		const entries = await readdir(directory ?? "");
+		for (const path of removedQuarantines)
+			expect(entries).not.toContain(path.split(/[\\/]/).at(-1));
+	});
+
+	it("does not report removed rollback quarantines after rm rejects late", async () => {
+		const { first, second, validated } = await fixture();
+		let replaced = false;
+		const removedQuarantines: string[] = [];
+		const result = await applyValidatedEdits(validated, {
+			platform: "linux",
+			fileSystem: {
+				...baseFileSystem,
+				rename: async (from, to) => {
+					if (!replaced && from.endsWith(".tmp") && to === first) {
+						replaced = true;
+						await baseFileSystem.rename(from, to);
+						return;
+					}
+					if (replaced && from.endsWith(".tmp") && to === second)
+						throw new Error("late replacement failed");
+					return baseFileSystem.rename(from, to);
+				},
+				rm: async (path, options) => {
+					if (
+						path.includes(".cleanup-") &&
+						(path.includes(".restore-") || path.includes(".rollback-"))
+					) {
+						removedQuarantines.push(path);
+						await baseFileSystem.rm(path, options);
+						throw new Error("late rollback cleanup failure");
+					}
+					return baseFileSystem.rm(path, options);
+				},
+			},
+		});
+		expect(result.status).toBe("failed_restored");
+		expect(result.recoveryArtifacts).toEqual([]);
+		const entries = await readdir(directory ?? "");
+		for (const path of removedQuarantines)
+			expect(entries).not.toContain(path.split(/[\\/]/).at(-1));
+	});
+
+	it("reports the quarantine left by standalone cleanup", async () => {
+		const { validated } = await fixture();
+		const result = await applyValidatedEdits(validated, {
+			fileSystem: {
+				...baseFileSystem,
+				writeExclusive: async (path, data, mode) => {
+					if (path.endsWith(".bak")) throw new Error("backup write failed");
+					return baseFileSystem.writeExclusive(path, data, mode);
+				},
+				rm: async (path, options) => {
+					if (path.includes(".cleanup-"))
+						throw new Error("quarantine cleanup failed");
+					return baseFileSystem.rm(path, options);
+				},
+			},
+		});
+		expect(result.status).toBe("rollback_incomplete");
+		const leftovers = await artifacts();
+		expect(result.recoveryArtifacts).toEqual(leftovers);
+		expect(
+			result.recoveryArtifacts.some((name) => name.includes(".cleanup-")),
+		).toBe(true);
+		for (const name of leftovers)
+			await baseFileSystem.rm(join(directory ?? "", name), { force: true });
+	});
+
+	it("preserves recovery material when rollback cannot quarantine its target", async () => {
 		const { first, second, validated } = await fixture();
 		const before = await Promise.all([readFile(first), readFile(second)]);
 		let renameCalls = 0;
@@ -463,11 +1057,40 @@ describe("workspace edit application and rollback", () => {
 		const leftovers = await artifacts();
 		expect(leftovers).toEqual(result.recoveryArtifacts);
 		if (!directory) throw new Error("Expected fixture directory.");
-		expect(await readFile(join(directory, leftovers[0] ?? ""), "utf8")).toBe(
-			"foreign file\n",
-		);
+		for (const name of leftovers)
+			expect(await readFile(join(directory, name), "utf8")).toBe(
+				"foreign file\n",
+			);
 		for (const name of leftovers)
 			await rm(join(directory, name), { force: true });
+	});
+
+	it("restores an existing target on the Windows rollback path", async () => {
+		const { first, second, validated } = await fixture();
+		let restoreRenameFailed = false;
+		const result = await applyValidatedEdits(validated, {
+			platform: "win32",
+			fileSystem: {
+				...baseFileSystem,
+				rename: async (from, to) => {
+					if (from.endsWith(".tmp") && to === second)
+						throw new Error("late replacement failed");
+					if (
+						!restoreRenameFailed &&
+						from.includes(".restore-") &&
+						to === first
+					) {
+						restoreRenameFailed = true;
+						throw new Error("windows cannot replace target");
+					}
+					return baseFileSystem.rename(from, to);
+				},
+			},
+		});
+		expect(result.status).toBe("failed_restored");
+		expect(await readFile(first, "utf8")).toBe("alpha\n");
+		expect(await readFile(second, "utf8")).toBe("bravo\n");
+		expect(await artifacts()).toEqual([]);
 	});
 
 	it("restores the target if Windows displaced-target inspection fails", async () => {

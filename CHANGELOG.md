@@ -6,6 +6,10 @@
 
 - Built-in Vue Language Server candidate route for `.vue` files using `vue-language-server --stdio`; it remains manual-only and has no compatibility or installation claim.
 
+### Fixed
+
+- Multi-file `WorkspaceEdit` rollback now preserves external file changes and deletions and reports recovery artifacts left by cleanup failures.
+
 ## 0.2.0 - 2026-09-01
 
 ### Added

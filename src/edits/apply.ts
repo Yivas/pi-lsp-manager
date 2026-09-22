@@ -1,5 +1,6 @@
 import {
 	chmod,
+	link as fsLink,
 	lstat,
 	readFile,
 	realpath,
@@ -19,11 +20,13 @@ import {
 } from "./validate.js";
 import {
 	ownedArtifact,
+	removeOwnedArtifact,
 	rollback,
 	stillOwned,
 	type Artifact,
 	type MutationFileSystem,
 	type MutationStatus,
+	type OwnedOutput,
 	type PreparedReplacement,
 	type StatLike,
 } from "./rollback.js";
@@ -39,6 +42,7 @@ const nodeFileSystem: ApplyFileSystem = {
 	realpath,
 	writeExclusive: (path, data, mode) =>
 		writeFile(path, data, { flag: "wx", mode }),
+	link: fsLink,
 	chmod,
 	rename,
 	rm,
@@ -121,52 +125,6 @@ async function targetMatches(
 		return false;
 	}
 }
-function sameArtifactIdentity(
-	left: FileIdentity,
-	right: FileIdentity,
-): boolean {
-	return sameIdentity(left, right);
-}
-function isAbsent(error: unknown): boolean {
-	return (
-		typeof error === "object" &&
-		error !== null &&
-		"code" in error &&
-		(error as { code?: unknown }).code === "ENOENT"
-	);
-}
-async function removeOwned(
-	artifact: Artifact,
-	fileSystem: ApplyFileSystem,
-): Promise<"removed" | "absent" | "unsafe"> {
-	const quarantine = `${artifact.path}.cleanup-${randomUUID()}`;
-	let moved = false;
-	try {
-		const current = await fileSystem.lstat(artifact.path);
-		if (
-			!current.isFile() ||
-			current.isSymbolicLink() ||
-			!sameArtifactIdentity(artifact.identity, fileIdentity(current))
-		)
-			return "unsafe";
-		// Rename first: a concurrent replacement is moved, not deleted. The random
-		// quarantine name then gives us a private identity-check boundary.
-		await fileSystem.rename(artifact.path, quarantine);
-		moved = true;
-		const quarantined = { path: quarantine, identity: artifact.identity };
-		if (!(await stillOwned(fileSystem, quarantined))) {
-			await fileSystem.rename(quarantine, artifact.path).catch(() => undefined);
-			return "unsafe";
-		}
-		if (!(await stillOwned(fileSystem, quarantined))) return "unsafe";
-		await fileSystem.rm(quarantine, { force: true });
-		return "removed";
-	} catch (error) {
-		if (moved)
-			await fileSystem.rename(quarantine, artifact.path).catch(() => undefined);
-		return isAbsent(error) && !moved ? "absent" : "unsafe";
-	}
-}
 function relativeArtifactName(edit: ValidatedFileEdit, path: string): string {
 	const directory = dirname(edit.relativePath);
 	return directory === "." ? basename(path) : join(directory, basename(path));
@@ -188,9 +146,9 @@ async function cleanupStandalone(
 ): Promise<readonly string[]> {
 	const recovery: string[] = [];
 	for (const artifact of artifacts) {
-		const basename = artifact.path.split(/[\\/]/).at(-1) ?? "artifact";
-		if ((await removeOwned(artifact, fileSystem)) === "unsafe")
-			recovery.push(basename);
+		const removal = await removeOwnedArtifact(fileSystem, artifact);
+		for (const path of removal.paths)
+			recovery.push(path.split(/[\\/]/).at(-1) ?? "artifact");
 	}
 	return recovery.sort();
 }
@@ -207,8 +165,9 @@ async function cleanup(
 				recovery.add(artifactName);
 				continue;
 			}
-			if ((await removeOwned(artifact, fileSystem)) === "unsafe")
-				recovery.add(artifactName);
+			const removal = await removeOwnedArtifact(fileSystem, artifact);
+			for (const path of removal.paths)
+				recovery.add(recoveryName(item, { ...artifact, path }));
 		}
 	}
 	return [...recovery].sort();
@@ -232,6 +191,84 @@ async function artifactMatches(
 	} catch {
 		return false;
 	}
+}
+async function captureOutput(
+	fileSystem: ApplyFileSystem,
+	item: PreparedReplacement,
+	expectedHash: string,
+): Promise<OwnedOutput> {
+	const artifact = await ownedArtifact(fileSystem, item.edit.path);
+	if (!artifact || !(await artifactMatches(fileSystem, artifact, expectedHash)))
+		throw new Error("replacement_output_changed");
+	return { artifact, hash: expectedHash };
+}
+async function reconcileReplacement(
+	item: PreparedReplacement,
+	fileSystem: ApplyFileSystem,
+	outputHash: string,
+): Promise<"installed" | "unchanged" | "uncertain"> {
+	const outputAtTarget = await artifactMatches(
+		fileSystem,
+		{ ...item.temporary, path: item.edit.path },
+		outputHash,
+	);
+	const temporaryRemains = await artifactMatches(
+		fileSystem,
+		item.temporary,
+		outputHash,
+	);
+	if (outputAtTarget && !temporaryRemains) {
+		item.phase = "installed";
+		item.output = {
+			artifact: { ...item.temporary, path: item.edit.path },
+			hash: outputHash,
+		};
+		return "installed";
+	}
+	if (temporaryRemains && (await targetMatches(item.edit, fileSystem)))
+		return "unchanged";
+	item.phase = "uncertain";
+	return "uncertain";
+}
+async function reconcileDisplacedReplacement(
+	item: PreparedReplacement,
+	fileSystem: ApplyFileSystem,
+	outputHash: string,
+): Promise<"installed" | "unchanged" | "uncertain"> {
+	const outputAtTarget = await artifactMatches(
+		fileSystem,
+		{ ...item.temporary, path: item.edit.path },
+		outputHash,
+	);
+	const temporaryRemains = await artifactMatches(
+		fileSystem,
+		item.temporary,
+		outputHash,
+	);
+	const displacedRemains =
+		item.displaced !== undefined &&
+		(await artifactMatches(fileSystem, item.displaced, item.edit.hash));
+	let targetAbsent = false;
+	try {
+		await fileSystem.lstat(item.edit.path);
+	} catch (error) {
+		targetAbsent =
+			typeof error === "object" &&
+			error !== null &&
+			"code" in error &&
+			(error as NodeJS.ErrnoException).code === "ENOENT";
+	}
+	if (outputAtTarget && !temporaryRemains) {
+		item.phase = "installed";
+		item.output = {
+			artifact: { ...item.temporary, path: item.edit.path },
+			hash: outputHash,
+		};
+		return "installed";
+	}
+	if (temporaryRemains && displacedRemains && targetAbsent) return "unchanged";
+	item.phase = "uncertain";
+	return "uncertain";
 }
 async function makeArtifact(
 	fileSystem: ApplyFileSystem,
@@ -258,11 +295,14 @@ async function replace(
 		throw new Error("commit_boundary_changed");
 	try {
 		await fileSystem.rename(item.temporary.path, item.edit.path);
-		item.replaced = true;
+		item.phase = "installed";
+		item.output = await captureOutput(fileSystem, item, outputHash);
 		await fileSystem.chmod(item.edit.path, item.edit.identity.mode & 0o777);
+		item.output = await captureOutput(fileSystem, item, outputHash);
 		return;
 	} catch (error) {
-		if (platform !== "win32") throw error;
+		const state = await reconcileReplacement(item, fileSystem, outputHash);
+		if (state !== "unchanged" || platform !== "win32") throw error;
 	}
 	// Windows may reject rename over an existing target. Move the target aside only
 	// after revalidation; the independent exclusive backup remains intact throughout.
@@ -272,30 +312,78 @@ async function replace(
 	)
 		throw new Error("commit_boundary_changed");
 	const displacedPath = `${item.backup.path}.replace-${randomUUID()}`;
-	await fileSystem.rename(item.edit.path, displacedPath);
-	// Track the expected original identity before any fallible inspection. If that
-	// inspection fails, rollback still knows the target is absent and retains both
-	// independent recovery copies until restoration is proven.
 	const displaced: Artifact = {
 		path: displacedPath,
 		identity: item.edit.identity,
 	};
 	item.displaced = displaced;
-	item.replaced = true;
-	if (!(await stillOwned(fileSystem, displaced)))
+	try {
+		await fileSystem.rename(item.edit.path, displacedPath);
+	} catch (error) {
+		const displacedExists = await artifactMatches(
+			fileSystem,
+			displaced,
+			item.edit.hash,
+		);
+		const targetUnchanged = await targetMatches(item.edit, fileSystem);
+		let targetExists = true;
+		try {
+			await fileSystem.lstat(item.edit.path);
+		} catch (inspectionError) {
+			if (
+				typeof inspectionError === "object" &&
+				inspectionError !== null &&
+				"code" in inspectionError &&
+				(inspectionError as NodeJS.ErrnoException).code === "ENOENT"
+			)
+				targetExists = false;
+		}
+		if (displacedExists && !targetExists) {
+			item.phase = "target_displaced";
+		} else if (targetUnchanged && !displacedExists) {
+			delete item.displaced;
+			throw error;
+		} else {
+			item.phase = "uncertain";
+			throw error;
+		}
+	}
+	item.phase = "target_displaced";
+	if (!(await artifactMatches(fileSystem, displaced, item.edit.hash)))
 		throw new Error("displaced_target_invalid");
 	try {
 		if (!(await artifactMatches(fileSystem, item.temporary, outputHash)))
 			throw new Error("temporary_changed");
 		await fileSystem.rename(item.temporary.path, item.edit.path);
-		item.replaced = true;
+		item.phase = "installed";
+		item.output = await captureOutput(fileSystem, item, outputHash);
 		await fileSystem.chmod(item.edit.path, item.edit.identity.mode & 0o777);
+		item.output = await captureOutput(fileSystem, item, outputHash);
 	} catch (error) {
+		const state = await reconcileDisplacedReplacement(
+			item,
+			fileSystem,
+			outputHash,
+		);
+		if (state !== "unchanged") throw error;
 		try {
-			if (await stillOwned(fileSystem, displaced)) {
-				await fileSystem.rename(displaced.path, item.edit.path);
-				await fileSystem.chmod(item.edit.path, item.edit.identity.mode & 0o777);
-				item.replaced = false;
+			if (await artifactMatches(fileSystem, displaced, item.edit.hash)) {
+				await fileSystem.link(displaced.path, item.edit.path);
+				if (
+					(await artifactMatches(fileSystem, displaced, item.edit.hash)) &&
+					(await artifactMatches(
+						fileSystem,
+						{ ...displaced, path: item.edit.path },
+						item.edit.hash,
+					))
+				) {
+					item.phase = "prepared";
+					const [survivingPath] = (
+						await removeOwnedArtifact(fileSystem, displaced, item.edit.hash)
+					).paths;
+					if (survivingPath)
+						item.displaced = { ...displaced, path: survivingPath };
+				}
 			}
 		} catch {
 			// rollback keeps the separately-created backup as recovery material.
@@ -364,7 +452,7 @@ export async function applyValidatedEdits(
 					);
 					options.onPhase?.("backup", index);
 					unpaired.pop();
-					prepared.push({ edit, temporary, backup, replaced: false });
+					prepared.push({ edit, temporary, backup, phase: "prepared" });
 				}
 				options.onPhase?.("prepared");
 				if (options.signal?.aborted) {
