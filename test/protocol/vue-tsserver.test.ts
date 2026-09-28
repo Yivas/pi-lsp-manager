@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { LspConnection } from "../../src/protocol/connection.js";
 import {
 	mapVueRenameEdits,
@@ -60,14 +60,37 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     process.stdout.write("Content-Length: 4194305\r\n\r\n");
     return;
   }
-  if (mode === "silent") return;
+  if (request.command === "definition" && mode === "longHeader") {
+    process.stdout.write("Content-Length: 0\r\nX-Pad: " + "x".repeat(256) + "\r\n\r\n");
+    return;
+  }
+  if (request.command === "definition" && mode === "hugeBuffer") {
+    process.stdout.write(Buffer.alloc(4 * 1024 * 1024 + 257, 120));
+    return;
+  }
+  if (mode === "silent" || (mode === "silentDefinition" && request.command === "definition")) return;
   const location = {
     file: request.arguments?.file,
     start: { line: 1, offset: request.command === "references" ? 2 : 1 },
     end: { line: 1, offset: request.command === "references" ? 6 : 5 },
   };
+  const definition = { ...location, start: { line: 1, offset: 1 }, end: { line: 1, offset: 5 } };
   const body = request.command === "definition" ? [location]
-    : request.command === "references" ? { refs: [location] } : null;
+    : request.command === "references" ? { refs: mode === "withDeclaration" ? [definition, location] : [location] }
+    : request.command === "syntacticDiagnosticsSync" ? [{
+      start: { line: 2, offset: 3 }, end: { line: 2, offset: 7 },
+      text: request.arguments?.file + ": broken expression", category: "error", code: 2322,
+    }]
+    : request.command === "semanticDiagnosticsSync" ? [{
+      start: { line: 3, offset: 1 }, end: { line: 3, offset: 4 },
+      text: "unused variable", category: "warning", code: 6133,
+    }]
+    : request.command === "rename" ? {
+      info: { canRename: true, triggerSpan: { start: definition.start, end: definition.end } },
+      locs: [{ file: request.arguments?.file, locs: [{
+        start: definition.start, end: definition.end, prefixText: "$",
+      }] }],
+    } : null;
   if (request.command === "definition" && mode === "unknown") {
     const unknown = Buffer.from(JSON.stringify({
       type: "response", request_seq: request.seq + 100, success: true, body: [],
@@ -168,7 +191,103 @@ describe("Vue tsserver protocol", () => {
 		},
 	);
 
-	it.each(["invalid", "oversized"])(
+	it("maps diagnostics, rename and source positions from tsserver replies", async () => {
+		await withTsserver("normal", async (bridge, rootPath, log, failures) => {
+			const component = join(rootPath, "Component.vue");
+			expect(
+				await bridge.diagnostics(component, "const value = broken"),
+			).toEqual([
+				{
+					range: {
+						start: { line: 1, character: 2 },
+						end: { line: 1, character: 6 },
+					},
+					message: `${component}: broken expression`,
+					severity: 1,
+					code: 2322,
+					source: "typescript",
+				},
+				{
+					range: {
+						start: { line: 2, character: 0 },
+						end: { line: 2, character: 3 },
+					},
+					message: "unused variable",
+					severity: 2,
+					code: 6133,
+					source: "typescript",
+				},
+			]);
+			expect(
+				await bridge.rename(
+					component,
+					"const value = broken",
+					{ line: 1, character: 2 },
+					"changed",
+				),
+			).toEqual({
+				range: {
+					start: { line: 0, character: 0 },
+					end: { line: 0, character: 4 },
+				},
+				edit: {
+					changes: {
+						[pathToFileURL(component).href]: [
+							{
+								range: {
+									start: { line: 0, character: 0 },
+									end: { line: 0, character: 4 },
+								},
+								newText: "$changed",
+							},
+						],
+					},
+				},
+			});
+			expect((await readFile(log, "utf8")).trim().split("\n")).toEqual([
+				"configure",
+				"open",
+				"syntacticDiagnosticsSync",
+				"semanticDiagnosticsSync",
+				"rename",
+			]);
+			expect(failures()).toBe(0);
+		});
+	}, 15_000);
+
+	it("excludes the declaration from references when requested", async () => {
+		await withTsserver(
+			"withDeclaration",
+			async (bridge, rootPath, log, failures) => {
+				const component = join(rootPath, "Component.vue");
+				expect(
+					await bridge.references(
+						component,
+						"symbol",
+						{ line: 0, character: 0 },
+						false,
+					),
+				).toEqual([
+					{
+						uri: pathToFileURL(component).href,
+						range: {
+							start: { line: 0, character: 1 },
+							end: { line: 0, character: 5 },
+						},
+					},
+				]);
+				expect((await readFile(log, "utf8")).trim().split("\n")).toEqual([
+					"configure",
+					"open",
+					"references",
+					"definition",
+				]);
+				expect(failures()).toBe(0);
+			},
+		);
+	}, 15_000);
+
+	it.each(["invalid", "oversized", "longHeader", "hugeBuffer"])(
 		"rejects %s response framing and stops the bridge",
 		async (mode) => {
 			await withTsserver(mode, async (bridge, rootPath, _log, failures) => {
@@ -181,6 +300,7 @@ describe("Vue tsserver protocol", () => {
 				expect(failures()).toBe(1);
 			});
 		},
+		15_000,
 	);
 
 	it("rejects an unsuccessful semantic response without pretending it is empty", async () => {
@@ -194,6 +314,33 @@ describe("Vue tsserver protocol", () => {
 			expect(failures()).toBe(0);
 		});
 	});
+
+	it("rejects a pending request when the bridge closes without reporting a crash", async () => {
+		await withTsserver(
+			"silentDefinition",
+			async (bridge, rootPath, log, failures) => {
+				const pending = bridge.definition(
+					join(rootPath, "Component.vue"),
+					"content",
+					{ line: 0, character: 0 },
+				);
+				await vi.waitFor(
+					async () => {
+						expect((await readFile(log, "utf8")).trim().split("\n")).toContain(
+							"definition",
+						);
+					},
+					{ timeout: 2_000 },
+				);
+				const rejected = expect(pending).rejects.toThrow(
+					"Vue tsserver stopped.",
+				);
+				await bridge.stop();
+				await rejected;
+				expect(failures()).toBe(0);
+			},
+		);
+	}, 15_000);
 
 	it("rejects an in-flight request on cancellation and stops the bridge", async () => {
 		await withTsserver("silent", async (bridge, rootPath, _log, failures) => {
