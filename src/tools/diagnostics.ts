@@ -109,13 +109,22 @@ async function collectDiagnostics(
 	const document = operation.runtime.session.documents.get(operation.uri);
 	if (!document)
 		throw new ToolError("invalid_file", "Use a supported regular file.");
-	const result = await operation.runtime.diagnostics.collect(
-		operation.uri,
-		document.version,
-		hasCapability(operation.runtime.session.capabilities, "diagnostics"),
-		signal,
-		operation.diagnosticGeneration,
-	);
+	const [result, vueDiagnostics] = await Promise.all([
+		operation.runtime.diagnostics.collect(
+			operation.uri,
+			document.version,
+			hasCapability(operation.runtime.session.capabilities, "diagnostics"),
+			signal,
+			operation.diagnosticGeneration,
+		),
+		operation.server.id === "vue"
+			? operation.runtime.vueDiagnostics(
+					operation.target.filePath,
+					document.text,
+					signal,
+				)
+			: Promise.resolve([] as readonly Diagnostic[]),
+	]);
 	if (!result.ok) {
 		if (result.code === "diagnostics_timed_out")
 			throw new ToolError(
@@ -137,7 +146,9 @@ async function collectDiagnostics(
 		throw new ToolError("runtime_failed", "Retry the request.");
 	}
 	const normalized = stable(
-		result.diagnostics.filter(isDiagnostic),
+		[...(result.ok ? result.diagnostics : []), ...vueDiagnostics].filter(
+			isDiagnostic,
+		),
 		(item) =>
 			`${item.range.start.line}:${item.range.start.character}:${item.range.end.line}:${item.range.end.character}:${item.severity ?? 0}:${item.code ?? ""}:${item.message}`,
 	)
@@ -248,9 +259,11 @@ export async function diagnostics(
 		return success({ diagnostics: value });
 	} catch (error) {
 		return failure(
-			error instanceof ToolError
-				? error
-				: new ToolError("runtime_failed", "Retry the request."),
+			signal?.aborted
+				? new ToolError("cancelled", "Retry the request.")
+				: error instanceof ToolError
+					? error
+					: new ToolError("runtime_failed", "Retry the request."),
 		);
 	}
 }

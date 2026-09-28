@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { getRecipe } from "../../src/install/catalog.js";
+import { getRecipe, VUE_RECIPE } from "../../src/install/catalog.js";
 import {
 	createNodeInstallationVerifier,
 	verifyInstallation,
@@ -131,6 +131,54 @@ describe("production installation verifier", () => {
 			(calls[0]?.[2] as { windowsVerbatimArguments?: boolean })
 				.windowsVerbatimArguments,
 		).toBe(true);
+	});
+
+	it("requires the exact Vue plugin and SDK before executing its shim", async () => {
+		const root = await temporaryDirectory();
+		const bin = join(root, "node_modules", ".bin");
+		await mkdir(bin, { recursive: true });
+		await writeFile(join(bin, "vue-language-server.cmd"), "@echo off\r\n");
+		let launched = 0;
+		const verifier = createNodeInstallationVerifier("win32", (() => {
+			launched += 1;
+			const child = new EventEmitter() as EventEmitter & {
+				stdout: EventEmitter;
+				kill(): boolean;
+			};
+			child.stdout = new EventEmitter();
+			child.kill = () => true;
+			queueMicrotask(() => {
+				child.stdout.emit("data", "3.3.11\n");
+				child.emit("close", 0);
+			});
+			return child;
+		}) as never);
+		const writeMetadata = async (name: string, version: string) => {
+			const path = join(root, "node_modules", name);
+			await mkdir(path, { recursive: true });
+			await writeFile(join(path, "package.json"), JSON.stringify({ version }));
+		};
+		await writeMetadata("@vue/language-server", "3.3.11");
+		await writeMetadata("typescript", "5.9.3");
+		await mkdir(join(root, "node_modules", "typescript", "lib"));
+		await writeFile(
+			join(root, "node_modules", "typescript", "lib", "tsserver.js"),
+			"",
+		);
+		expect(
+			await verifier(root, VUE_RECIPE, new AbortController().signal),
+		).toBeUndefined();
+		expect(launched).toBe(0);
+		await writeMetadata("@vue/typescript-plugin", "2.2.12");
+		expect(
+			await verifier(root, VUE_RECIPE, new AbortController().signal),
+		).toBeUndefined();
+		expect(launched).toBe(0);
+		await writeMetadata("@vue/typescript-plugin", "3.3.11");
+		expect(
+			await verifier(root, VUE_RECIPE, new AbortController().signal),
+		).toMatchObject({ version: "3.3.11" });
+		expect(launched).toBe(1);
 	});
 
 	it("rejects a verifier that reports a mismatched version", async () => {

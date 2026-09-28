@@ -55,11 +55,26 @@ jobs:
           EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
         run: |
           node -e 'const os=require("node:os"); const actual={platform:os.platform(),release:os.release(),architecture:os.arch(),node:process.version}; console.log(JSON.stringify(actual)); if(actual.platform!==process.env.EXPECTED_PLATFORM||actual.architecture!==process.env.EXPECTED_ARCHITECTURE) process.exit(1)'
-          npm ls --depth=0 @earendil-works/pi-coding-agent typescript-language-server typescript
+          npm ls --depth=0 @earendil-works/pi-coding-agent typescript-language-server typescript @vue/language-server vue
+          npm ls --all @vue/typescript-plugin
       - name: Run real TypeScript Language Server fixture
         run: npm test -- test/real-servers/typescript-language-server.test.ts
         env:
           RUN_REAL_LSP: "1"
+      - name: Verify locked Vue installation and real Vue fixture
+        shell: bash
+        run: |
+          gate=$(mktemp -d test/.vue-install-gate.XXXXXX)
+          trap 'rm -rf -- "$gate"' EXIT
+          node --input-type=module - "$gate" <<'EOF'
+          import { resolve } from 'node:path';
+          import { VUE_RECIPE } from './src/install/catalog.ts';
+          import { prepareControlledNpmFiles } from './src/install/launch.ts';
+          await prepareControlledNpmFiles(resolve(process.argv[2]), VUE_RECIPE);
+          EOF
+          (cd "$gate" && npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org --userconfig=./npmrc --globalconfig=./global-npmrc --cache=./cache)
+          VUE_CLI=$(node -p 'require("node:path").resolve(process.argv[1], "node_modules/@vue/language-server/bin/vue-language-server.js")' "$gate")
+          RUN_REAL_VUE=1 VUE_CLI="$VUE_CLI" npm test -- test/real-servers/vue-language-server.test.ts
       - name: Audit locked dependencies
         run: npm audit --audit-level=low
       - name: Inspect package contents

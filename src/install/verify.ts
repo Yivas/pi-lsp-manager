@@ -4,6 +4,7 @@ import { constants } from "node:fs";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { InstallRecipe } from "./catalog.js";
 import { createServerLaunch } from "./launch.js";
+import { resolveVuePackages } from "./vue-packages.js";
 
 export interface InstalledExecutable {
 	path: string;
@@ -119,6 +120,14 @@ export function createNodeInstallationVerifier(
 		if (signal.aborted) return undefined;
 		const path = await existingExecutable(installationPath, recipe, platform);
 		if (!path || signal.aborted) return undefined;
+		if (
+			recipe.serverId === "vue" &&
+			!(await resolveVuePackages(
+				{ command: path, args: [], shell: false },
+				path,
+			))
+		)
+			return undefined;
 		const launch = createServerLaunch(path, ["--version"], platform, comSpec);
 		if (!launch) return undefined;
 		const child = spawnProcess(launch.command, [...launch.args], {

@@ -1,5 +1,7 @@
 node_modules/
 dist/
+test/.vue-real-*/
+test/.vue-install-gate.*/
 coverage/
 .cache/
 *.log

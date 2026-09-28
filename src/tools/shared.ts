@@ -14,6 +14,7 @@ import {
 	type InstallOrigin,
 } from "../install/policy.js";
 import { resolveExecutable } from "../install/executable.js";
+import { VueIntegrationUnavailableError } from "../install/vue-packages.js";
 import type {
 	InstallCoordinator,
 	InstallResult,
@@ -397,24 +398,31 @@ export class TrustedOperationService {
 		if (!launch) throw new ToolError("server_unavailable", server.manualHelp);
 		const pool = this.options.pool();
 		if (!pool) throw new ToolError("runtime_failed", "Restart Pi and retry.");
-		const acquired = await pool.acquire(
-			target.rootPath,
-			server.id,
-			async (startSignal) => {
-				const key = await pool.key(target.rootPath, server.id);
-				return this.start({
-					launch,
-					rootPath: target.rootPath,
-					server,
-					...(loaded.config.diagnostics
-						? { requestTimeoutMs: loaded.config.diagnostics.requestTimeoutMs }
-						: {}),
-					signal: startSignal,
-					...pool.lifecycleCallbacks(key),
-				});
-			},
-			signal,
-		);
+		const acquired = await pool
+			.acquire(
+				target.rootPath,
+				server.id,
+				async (startSignal) => {
+					const key = await pool.key(target.rootPath, server.id);
+					return this.start({
+						launch,
+						...(server.id === "vue" ? { vueExecutablePath: executable } : {}),
+						rootPath: target.rootPath,
+						server,
+						...(loaded.config.diagnostics
+							? { requestTimeoutMs: loaded.config.diagnostics.requestTimeoutMs }
+							: {}),
+						signal: startSignal,
+						...pool.lifecycleCallbacks(key),
+					});
+				},
+				signal,
+			)
+			.catch((error: unknown) => {
+				if (error instanceof VueIntegrationUnavailableError)
+					throw new ToolError("server_unavailable", server.manualHelp);
+				throw error;
+			});
 		const runtime = acquired.entry.session as NodeLspRuntimeSession;
 		const uri = pathToFileURL(target.filePath).href;
 		try {
@@ -850,24 +858,31 @@ export class TrustedOperationService {
 		const pool = this.options.pool();
 		if (!launch || !pool)
 			throw new ToolError("runtime_failed", "Restart Pi and retry.");
-		const acquired = await pool.acquire(
-			rootPath,
-			server.id,
-			async (startSignal) => {
-				const key = await pool.key(rootPath, server.id);
-				return this.start({
-					launch,
-					rootPath,
-					server,
-					...(loaded.config.diagnostics
-						? { requestTimeoutMs: loaded.config.diagnostics.requestTimeoutMs }
-						: {}),
-					signal: startSignal,
-					...pool.lifecycleCallbacks(key),
-				});
-			},
-			signal,
-		);
+		const acquired = await pool
+			.acquire(
+				rootPath,
+				server.id,
+				async (startSignal) => {
+					const key = await pool.key(rootPath, server.id);
+					return this.start({
+						launch,
+						...(server.id === "vue" ? { vueExecutablePath: executable } : {}),
+						rootPath,
+						server,
+						...(loaded.config.diagnostics
+							? { requestTimeoutMs: loaded.config.diagnostics.requestTimeoutMs }
+							: {}),
+						signal: startSignal,
+						...pool.lifecycleCallbacks(key),
+					});
+				},
+				signal,
+			)
+			.catch((error: unknown) => {
+				if (error instanceof VueIntegrationUnavailableError)
+					throw new ToolError("server_unavailable", server.manualHelp);
+				throw error;
+			});
 		acquired.lease.release();
 	}
 

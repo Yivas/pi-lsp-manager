@@ -129,7 +129,13 @@ const typescript: ServerDefinition = {
 
 export const DEFAULT_SERVERS: readonly ServerDefinition[] = [
 	typescript,
-	candidate("vue", [".vue"], ["vue"], "vue-language-server", ["--stdio"]),
+	{
+		...candidate("vue", [".vue"], ["vue"], "vue-language-server", ["--stdio"]),
+		priority: 100,
+		diagnostics: { ...timing, pushGraceMs: 15_000 },
+		manualHelp:
+			"Install Vue Language Server 3.3.11, its TypeScript plugin 3.3.11 and TypeScript 5.9.3 in one npm root. Set the route command to the absolute Node executable and args to the absolute vue-language-server.js path followed by --stdio; a launcher on PATH alone does not locate the plugin root.",
+	},
 	candidate(
 		"biome",
 		[".js", ".jsx", ".ts", ".tsx", ".json", ".jsonc", ".css", ".graphql"],

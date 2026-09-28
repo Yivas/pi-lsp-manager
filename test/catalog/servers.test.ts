@@ -40,13 +40,16 @@ describe("server catalog", () => {
 			extensions: [".vue"],
 			languageIds: ["vue"],
 			roles: ["diagnostics", "semantic", "mutation"],
-			priority: 0,
+			priority: 100,
 			route: { command: "vue-language-server", args: ["--stdio"] },
 			autoInstall: false,
 			admission: "candidate",
 			compatibility: [],
-			manualHelp: "Install and configure this server manually, then retry.",
+			manualHelp: expect.stringContaining("TypeScript plugin 3.3.11"),
+			diagnostics: { pushGraceMs: 15_000, settleMs: 50, pullGraceMs: 250 },
 		});
+		expect(server?.manualHelp).toContain("vue-language-server.js");
+		expect(server?.manualHelp).toContain("--stdio");
 		expect(getRecipe("vue")).toBeUndefined();
 	});
 

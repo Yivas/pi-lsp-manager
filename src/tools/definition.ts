@@ -110,11 +110,20 @@ export async function definition(
 					signal,
 				);
 				if (!result.ok) throwConnectionFailure(result.code);
-				const raw = Array.isArray(result.value)
+				const raw: unknown[] = Array.isArray(result.value)
 					? result.value
 					: result.value
 						? [result.value]
 						: [];
+				if (operation.server.id === "vue" && raw.length === 0)
+					raw.push(
+						...(await operation.runtime.vueDefinition(
+							operation.target.filePath,
+							document.text,
+							{ line: input.line - 1, character: input.character },
+							signal,
+						)),
+					);
 				const locations = raw.slice(0, 1_000).map(location).filter(Boolean) as {
 					uri: string;
 					position: Position;
@@ -141,9 +150,11 @@ export async function definition(
 		return success({ definitions: value });
 	} catch (error) {
 		return failure(
-			error instanceof ToolError
-				? error
-				: new ToolError("runtime_failed", "Retry the request."),
+			signal?.aborted
+				? new ToolError("cancelled", "Retry the request.")
+				: error instanceof ToolError
+					? error
+					: new ToolError("runtime_failed", "Retry the request."),
 		);
 	}
 }

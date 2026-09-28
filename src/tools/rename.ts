@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { Type, type Static } from "typebox";
 import { hasCapability } from "../protocol/capabilities.js";
 import { utf16Offset } from "../protocol/documents.js";
+import { VueCrossFileRenameError } from "../protocol/vue-tsserver.js";
 import { applyValidatedEdits } from "../edits/apply.js";
 import { normalizeWorkspaceEdit } from "../edits/normalize.js";
 import { validateWorkspaceEdit } from "../edits/validate.js";
@@ -67,19 +68,54 @@ export async function rename(
 					signal,
 				);
 				if (!prepared.ok) throwConnectionFailure(prepared.code);
-				if (prepared.value === null || prepared.value === undefined)
-					throw new ToolError("invalid_file", "This symbol cannot be renamed.");
-				const response = await operation.runtime.connection.request<unknown>(
-					"textDocument/rename",
-					{
-						textDocument: { uri: operation.uri },
+				let workspaceEdit: unknown;
+				if (
+					(prepared.value === null || prepared.value === undefined) &&
+					operation.server.id === "vue"
+				) {
+					if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(newName))
+						throw new ToolError(
+							"invalid_file",
+							"Use a TypeScript identifier for Vue rename.",
+						);
+					const fallback = await operation.runtime.vueRename(
+						operation.target.filePath,
+						document.text,
 						position,
 						newName,
-					},
-					signal,
-				);
-				if (!response.ok) throwConnectionFailure(response.code);
-				const normalized = normalizeWorkspaceEdit(response.value);
+						signal,
+					);
+					if (!fallback)
+						throw new ToolError(
+							"invalid_file",
+							"This symbol cannot be renamed.",
+						);
+					workspaceEdit = fallback.edit;
+				} else {
+					if (prepared.value === null || prepared.value === undefined)
+						throw new ToolError(
+							"invalid_file",
+							"This symbol cannot be renamed.",
+						);
+					const response = await operation.runtime.connection.request<unknown>(
+						"textDocument/rename",
+						{ textDocument: { uri: operation.uri }, position, newName },
+						signal,
+					);
+					if (!response.ok) throwConnectionFailure(response.code);
+					workspaceEdit = response.value;
+					if (workspaceEdit === null && operation.server.id === "vue") {
+						const fallback = await operation.runtime.vueRename(
+							operation.target.filePath,
+							document.text,
+							position,
+							newName,
+							signal,
+						);
+						workspaceEdit = fallback?.edit;
+					}
+				}
+				const normalized = normalizeWorkspaceEdit(workspaceEdit);
 				if (!normalized)
 					throw new ToolError(
 						"runtime_failed",
@@ -107,12 +143,16 @@ export async function rename(
 		return success({ mutation: result });
 	} catch (error) {
 		return failure(
-			error instanceof ToolError
-				? error
-				: new ToolError(
-						"runtime_failed",
-						"Rename failed without applying a retry.",
-					),
+			error instanceof VueCrossFileRenameError
+				? new ToolError("invalid_file", error.message)
+				: signal?.aborted
+					? new ToolError("cancelled", "Retry the request.")
+					: error instanceof ToolError
+						? error
+						: new ToolError(
+								"runtime_failed",
+								"Rename failed without applying a retry.",
+							),
 		);
 	}
 }

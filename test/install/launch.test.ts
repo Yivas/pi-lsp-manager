@@ -2,7 +2,11 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { getRecipe } from "../../src/install/catalog.js";
+import {
+	getRecipe,
+	VUE_RECIPE,
+	type InstallRecipe,
+} from "../../src/install/catalog.js";
 import {
 	buildPackageManagerEnvironment,
 	createCmdShimLaunch,
@@ -61,6 +65,57 @@ describe("controlled npm inputs", () => {
 			tsserver: "bin/tsserver",
 		});
 		expect(validateControlledNpmFiles(recipe, files)).toBe(true);
+	});
+
+	it("validates Vue's complete locked dependency closure before installation", () => {
+		const files = createControlledNpmFiles(VUE_RECIPE);
+		const lock = JSON.parse(files.packageLock) as {
+			packages: Record<string, { integrity?: string; resolved?: string }>;
+		};
+		expect(Object.keys(lock.packages)).toHaveLength(100);
+		expect(lock.packages["node_modules/@vue/language-server"]?.integrity).toBe(
+			VUE_RECIPE.packages[0]?.integrity,
+		);
+		expect(validateControlledNpmFiles(VUE_RECIPE, files)).toBe(true);
+
+		const entry = (
+			packages: Record<string, Record<string, unknown>>,
+			key: string,
+		) => {
+			const value = packages[key];
+			if (!value) throw new Error(`Missing fixture package: ${key}`);
+			return value;
+		};
+		for (const tamper of [
+			(packages: Record<string, Record<string, unknown>>) => {
+				entry(packages, "node_modules/@vue/language-server").integrity =
+					"sha512-tampered";
+			},
+			(packages: Record<string, Record<string, unknown>>) => {
+				entry(packages, "node_modules/vue").resolved =
+					"https://attacker.example/vue.tgz";
+			},
+			(packages: Record<string, Record<string, unknown>>) => {
+				entry(packages, "node_modules/vue").hasInstallScript = true;
+			},
+			(packages: Record<string, Record<string, unknown>>) => {
+				packages["node_modules/../escaped"] = {
+					...entry(packages, "node_modules/vue"),
+				};
+			},
+			(packages: Record<string, Record<string, unknown>>) => {
+				(entry(packages, "").dependencies as Record<string, string>).extra =
+					"1.0.0";
+			},
+		]) {
+			const lockfile = JSON.parse(JSON.stringify(VUE_RECIPE.lockfile)) as {
+				packages: Record<string, Record<string, unknown>>;
+			};
+			tamper(lockfile.packages);
+			expect(() =>
+				createControlledNpmFiles({ ...VUE_RECIPE, lockfile } as InstallRecipe),
+			).toThrow();
+		}
 	});
 
 	it("uses only staging-owned npm configuration and rejects a tampered lock", async () => {

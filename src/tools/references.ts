@@ -83,9 +83,19 @@ export async function references(
 				);
 				if (!result.ok) throwConnectionFailure(result.code);
 				const rootUri = `${pathToFileURL(operation.target.rootPath).href.replace(/\/$/, "")}/`;
-				const values = Array.isArray(result.value)
+				const values: ReferenceLocation[] = Array.isArray(result.value)
 					? result.value.slice(0, 1_000).filter(isReferenceLocation)
 					: [];
+				if (operation.server.id === "vue" && values.length === 0)
+					values.push(
+						...(await operation.runtime.vueReferences(
+							operation.target.filePath,
+							document.text,
+							{ line: input.line - 1, character: input.character },
+							input.includeDeclaration ?? false,
+							signal,
+						)),
+					);
 				const unique = stable(
 					values,
 					(item) =>
@@ -106,9 +116,11 @@ export async function references(
 		return success({ references: value });
 	} catch (error) {
 		return failure(
-			error instanceof ToolError
-				? error
-				: new ToolError("runtime_failed", "Retry the request."),
+			signal?.aborted
+				? new ToolError("cancelled", "Retry the request.")
+				: error instanceof ToolError
+					? error
+					: new ToolError("runtime_failed", "Retry the request."),
 		);
 	}
 }

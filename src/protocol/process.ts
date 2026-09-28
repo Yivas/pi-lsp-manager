@@ -4,13 +4,20 @@ import type { ServerLaunch } from "../install/launch.js";
 import { BoundedSanitizedOutput } from "../install/sanitize.js";
 import type { RuntimeSession } from "../runtime/pool.js";
 import { LspConnection } from "./connection.js";
-import { DiagnosticCollector } from "./diagnostics.js";
+import { DiagnosticCollector, type Diagnostic } from "./diagnostics.js";
 import { LspSession } from "./session.js";
+import {
+	resolveVuePackages,
+	VueIntegrationUnavailableError,
+} from "../install/vue-packages.js";
+import { VueTsserverBridge } from "./vue-tsserver.js";
 
 export type SpawnLspProcess = typeof spawn;
 
 export interface NodeLspSessionOptions {
 	launch: ServerLaunch;
+	/** Original executable before cmd.exe wrapping on Windows. */
+	vueExecutablePath?: string;
 	rootPath: string;
 	server: EffectiveServerConfig;
 	environment?: NodeJS.ProcessEnv;
@@ -86,6 +93,7 @@ export class NodeLspRuntimeSession implements RuntimeSession {
 	public readonly diagnostics: DiagnosticCollector;
 	public readonly session: LspSession;
 	private closed = false;
+	private bridge: VueTsserverBridge | undefined;
 	private readonly stderr = new BoundedSanitizedOutput();
 
 	private constructor(
@@ -133,6 +141,7 @@ export class NodeLspRuntimeSession implements RuntimeSession {
 			exitObserved = true;
 			// Pool eviction begins synchronously, before connection/process cleanup.
 			void options.onExit?.();
+			void this.bridge?.stop();
 			this.connection.close();
 		};
 		child.once("error", exited);
@@ -142,6 +151,13 @@ export class NodeLspRuntimeSession implements RuntimeSession {
 	public static async start(
 		options: NodeLspSessionOptions,
 	): Promise<NodeLspRuntimeSession> {
+		if (options.signal?.aborted) throw new Error("start_aborted");
+		const vuePackages =
+			options.server.id === "vue"
+				? await resolveVuePackages(options.launch, options.vueExecutablePath)
+				: undefined;
+		if (options.server.id === "vue" && !vuePackages)
+			throw new VueIntegrationUnavailableError();
 		if (options.signal?.aborted) throw new Error("start_aborted");
 		const spawnProcess = options.spawnProcess ?? spawn;
 		const child = spawnProcess(
@@ -163,6 +179,14 @@ export class NodeLspRuntimeSession implements RuntimeSession {
 		let abort: (() => void) | undefined;
 		try {
 			runtime = new NodeLspRuntimeSession(child, options);
+			if (vuePackages) {
+				runtime.bridge = VueTsserverBridge.start(
+					vuePackages,
+					options.rootPath,
+					runtime.connection,
+					() => void runtime?.terminate(),
+				);
+			}
 			const interrupted = new Promise<never>((_, reject) => {
 				abort = () => reject(new Error("start_aborted"));
 				options.signal?.addEventListener("abort", abort, { once: true });
@@ -184,6 +208,57 @@ export class NodeLspRuntimeSession implements RuntimeSession {
 		return this.stderr.value();
 	}
 
+	public vueDiagnostics(
+		file: string,
+		text: string,
+		signal?: AbortSignal,
+	): Promise<readonly Diagnostic[]> {
+		if (!this.bridge)
+			throw new Error("Vue TypeScript integration unavailable.");
+		return this.bridge.diagnostics(file, text, signal);
+	}
+
+	public vueDefinition(
+		file: string,
+		text: string,
+		position: { line: number; character: number },
+		signal?: AbortSignal,
+	) {
+		if (!this.bridge)
+			throw new Error("Vue TypeScript integration unavailable.");
+		return this.bridge.definition(file, text, position, signal);
+	}
+
+	public vueReferences(
+		file: string,
+		text: string,
+		position: { line: number; character: number },
+		includeDeclaration: boolean,
+		signal?: AbortSignal,
+	) {
+		if (!this.bridge)
+			throw new Error("Vue TypeScript integration unavailable.");
+		return this.bridge.references(
+			file,
+			text,
+			position,
+			includeDeclaration,
+			signal,
+		);
+	}
+
+	public vueRename(
+		file: string,
+		text: string,
+		position: { line: number; character: number },
+		newName: string,
+		signal?: AbortSignal,
+	) {
+		if (!this.bridge)
+			throw new Error("Vue TypeScript integration unavailable.");
+		return this.bridge.rename(file, text, position, newName, signal);
+	}
+
 	public async shutdown(): Promise<void> {
 		if (this.closed) return;
 		this.closed = true;
@@ -191,7 +266,7 @@ export class NodeLspRuntimeSession implements RuntimeSession {
 			await this.session.shutdown();
 		} finally {
 			this.connection.close();
-			await terminateChild(this.child);
+			await Promise.all([terminateChild(this.child), this.bridge?.stop()]);
 		}
 	}
 
@@ -199,6 +274,6 @@ export class NodeLspRuntimeSession implements RuntimeSession {
 		if (this.closed) return;
 		this.closed = true;
 		this.connection.close();
-		await terminateChild(this.child);
+		await Promise.all([terminateChild(this.child), this.bridge?.stop()]);
 	}
 }

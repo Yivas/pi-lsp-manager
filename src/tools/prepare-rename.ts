@@ -85,7 +85,17 @@ export async function prepareRename(
 					signal,
 				);
 				if (!result.ok) throwConnectionFailure(result.code);
-				if (result.value === null || result.value === undefined) return null;
+				if (result.value === null || result.value === undefined) {
+					if (operation.server.id !== "vue") return null;
+					const fallback = await operation.runtime.vueRename(
+						operation.target.filePath,
+						document.text,
+						{ line: input.line - 1, character: input.character },
+						"",
+						signal,
+					);
+					return fallback ? publicRange(fallback.range) : null;
+				}
 				if (isRange(result.value)) return publicRange(result.value);
 				const wrapped = result.value as {
 					range?: unknown;
@@ -105,9 +115,11 @@ export async function prepareRename(
 		return success({ prepareRename: value });
 	} catch (error) {
 		return failure(
-			error instanceof ToolError
-				? error
-				: new ToolError("runtime_failed", "Retry the request."),
+			signal?.aborted
+				? new ToolError("cancelled", "Retry the request.")
+				: error instanceof ToolError
+					? error
+					: new ToolError("runtime_failed", "Retry the request."),
 		);
 	}
 }

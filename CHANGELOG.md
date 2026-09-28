@@ -5,6 +5,7 @@
 ### Added
 
 - Built-in Vue Language Server candidate route for `.vue` files using `vue-language-server --stdio`; it remains manual-only and has no compatibility or installation claim.
+- Manual Vue 3.3.11 route pairs with a pinned TypeScript 5.9.3 server and Vue plugin for script diagnostics and semantic operations. Its internal installation recipe is not active.
 
 ### Fixed
 

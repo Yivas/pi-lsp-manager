@@ -30,6 +30,7 @@ Changes to pinned real-server behavior must also run the applicable fixture, for
 
 ```bash
 RUN_REAL_LSP=1 npm test -- test/real-servers/typescript-language-server.test.ts
+RUN_REAL_VUE=1 npm test -- test/real-servers/vue-language-server.test.ts
 ```
 
 Document the exact server, language, Pi, Node.js, operating-system, and architecture versions for any compatibility claim. Do not describe a catalog candidate or detected executable as supported without a passing real fixture and an exact compatibility row.

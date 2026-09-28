@@ -32,7 +32,7 @@ Trust the project through Pi only after reviewing it. The extension will not rea
 4. its language IDs and optional `languageIdByExtension` mapping match the file;
 5. `lsp_status` reports a configured and available route.
 
-The built-in TypeScript route is the only auto-installable entry. The other catalog IDs are candidates for manual configuration, not compatibility claims.
+The built-in TypeScript route is the only auto-installable entry. The other catalog IDs are candidates for manual configuration, not compatibility claims. For the Vue candidate, install `@vue/language-server@3.3.11`, `@vue/typescript-plugin@3.3.11`, and `typescript@5.9.3` together under one npm installation root. Set a global route to an absolute Node executable and pass the absolute `<npm-root>/node_modules/@vue/language-server/bin/vue-language-server.js` path followed by `--stdio`. A global npm launcher on `PATH` alone cannot locate the plugin root. The route fails with `server_unavailable` when the plugin or TypeScript SDK is missing or has a different version; it does not install them automatically.
 
 ## Automatic installation is disabled or offline
 
@@ -52,7 +52,7 @@ Retry only after resolving the reported cause. Do not delete managed directories
 
 ## Diagnostics time out
 
-`diagnostics_timed_out` means the client did not receive the initial asynchronous publication within the configured `pushGraceMs` (5 seconds by default). If navigation works but diagnostics keep timing out:
+`diagnostics_timed_out` means the client did not receive the initial asynchronous publication within the configured `pushGraceMs` (5 seconds by default; 15 seconds for the Vue candidate while its plugin analyzes the initial document). A clean Vue file with an empty publication can still take the full 15 seconds, and a cold project may time out once before a retry succeeds. If navigation works but diagnostics keep timing out:
 
 1. confirm the file belongs to a valid project for that server;
 2. inspect server state with `lsp_status`;
@@ -88,6 +88,8 @@ The runtime pool keys a process by canonical workspace root and server ID. Reque
 
 A preview is tied to the current session, server, file, and content hash. If the file changed, the preview is stale, or the action returns an unsafe workspace edit, the operation is rejected before writing. Generate a fresh preview and retry. Resource operations and overlapping edits are intentionally unsupported.
 
+If a Vue rename uses the TypeScript fallback, edits targeting another file are rejected instead of being applied without that file's content snapshot. A fresh request cannot make this fallback a cross-file rename; use another tool for that change.
+
 If a mutation reports recovery artifacts or an incomplete rollback, stop editing the affected files. Preserve the reported relative artifact names and follow the output instructions before restarting Pi.
 
 ## Post-edit diagnostics do not appear
@@ -96,7 +98,7 @@ Post-edit checks run only after Pi's successful `edit` or `write` tools, and onl
 
 ## Status and activity
 
-`lsp_status` includes `trusted`, `network`, `autoInstall`, `postEditDiagnostics`, and one sanitized record per server. Each record includes `id`, `enabled`, `priority`, `available`, `autoInstall`, `runnable`, `admission`, `roles`, `extensions`, `routeConfigured`, `recipePresent`, `installable`, and `runtime` (`active` or `inactive`). Untrusted status is global-only and includes an action telling you to trust the project.
+`lsp_status` includes `trusted`, `network`, `autoInstall`, `postEditDiagnostics`, and one sanitized record per server. Each record includes `id`, `enabled`, `priority`, `available`, `autoInstall`, `runnable`, `admission`, `roles`, `extensions`, `routeConfigured`, `recipePresent`, `installable`, and `runtime` (`active` or `inactive`). `runnable` means the enabled route's executable can launch; it does not preflight Vue's plugin and TypeScript SDK. If a Vue tool still returns `server_unavailable`, check the co-located versions and global route above. Untrusted status is global-only and includes an action telling you to trust the project.
 
 While any `lsp_*` tool or `/lsp` operation is running in a UI context, Pi shows the generic `LSP working` activity status. It does not include request arguments or file names and clears when all LSP work ends.
 

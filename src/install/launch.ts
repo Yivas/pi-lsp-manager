@@ -47,6 +47,93 @@ function packageTarballUrl(
 	return `${recipe.registry}/${escapedName}/-/${filename}`;
 }
 
+function lockedNpmPackages(
+	recipe: InstallRecipe,
+	dependencies: Record<string, string>,
+): Readonly<Record<string, unknown>> {
+	const lock = recipe.lockfile;
+	if (
+		!lock ||
+		lock.lockfileVersion !== 3 ||
+		lock.requires !== true ||
+		lock.name !== `pi-lsp-manager-${recipe.serverId}` ||
+		lock.version !== "0.0.0"
+	)
+		throw new Error("Invalid internal npm lockfile.");
+	const root = lock.packages[""] as
+		| { name?: unknown; version?: unknown; dependencies?: unknown }
+		| undefined;
+	if (
+		!root ||
+		root.name !== lock.name ||
+		root.version !== lock.version ||
+		!root.dependencies ||
+		typeof root.dependencies !== "object" ||
+		Array.isArray(root.dependencies) ||
+		JSON.stringify(root.dependencies) !== JSON.stringify(dependencies)
+	)
+		throw new Error("Internal npm lockfile has different direct dependencies.");
+	for (const [path, raw] of Object.entries(lock.packages)) {
+		if (!path) continue;
+		const entry = raw as {
+			version?: unknown;
+			integrity?: unknown;
+			resolved?: unknown;
+			license?: unknown;
+			hasInstallScript?: unknown;
+			link?: unknown;
+		} | null;
+		if (
+			!path.startsWith("node_modules/") ||
+			path
+				.split("/")
+				.some((segment) => !segment || segment === "." || segment === "..") ||
+			!entry ||
+			typeof entry.version !== "string" ||
+			!/^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(entry.version) ||
+			typeof entry.integrity !== "string" ||
+			!/^sha512-[A-Za-z0-9+/]+={0,2}$/.test(entry.integrity) ||
+			typeof entry.license !== "string" ||
+			!entry.license ||
+			typeof entry.resolved !== "string" ||
+			entry.hasInstallScript === true ||
+			entry.link === true
+		)
+			throw new Error("Internal npm lockfile contains an unpinned package.");
+		let url: URL;
+		try {
+			url = new URL(entry.resolved);
+		} catch {
+			throw new Error("Internal npm lockfile contains an invalid package URL.");
+		}
+		if (
+			url.protocol !== "https:" ||
+			url.hostname !== "registry.npmjs.org" ||
+			url.username ||
+			url.password ||
+			url.search ||
+			url.hash ||
+			!url.pathname.endsWith(".tgz")
+		)
+			throw new Error(
+				"Internal npm lockfile contains an external package URL.",
+			);
+	}
+	for (const pin of recipe.packages) {
+		const entry = lock.packages[`node_modules/${pin.name}`] as
+			| { version?: unknown; integrity?: unknown; license?: unknown }
+			| undefined;
+		if (
+			!entry ||
+			entry.version !== pin.version ||
+			entry.integrity !== pin.integrity ||
+			entry.license !== pin.license
+		)
+			throw new Error("Internal npm lockfile disagrees with a package pin.");
+	}
+	return lock.packages;
+}
+
 export function createControlledNpmFiles(
 	recipe: InstallRecipe,
 ): ControlledNpmFiles {
@@ -76,6 +163,9 @@ export function createControlledNpmFiles(
 						: undefined,
 		};
 	}
+	const locked = recipe.lockfile
+		? lockedNpmPackages(recipe, dependencies)
+		: undefined;
 	return {
 		packageJson: `${JSON.stringify({
 			name: `pi-lsp-manager-${recipe.serverId}`,
@@ -83,13 +173,17 @@ export function createControlledNpmFiles(
 			private: true,
 			dependencies,
 		})}\n`,
-		packageLock: `${JSON.stringify({
-			name: `pi-lsp-manager-${recipe.serverId}`,
-			version: "0.0.0",
-			lockfileVersion: 3,
-			requires: true,
-			packages,
-		})}\n`,
+		packageLock: `${JSON.stringify(
+			recipe.lockfile
+				? { ...recipe.lockfile, packages: locked }
+				: {
+						name: `pi-lsp-manager-${recipe.serverId}`,
+						version: "0.0.0",
+						lockfileVersion: 3,
+						requires: true,
+						packages,
+					},
+		)}\n`,
 		userConfig: CONTROLLED_NPMRC,
 		globalConfig: CONTROLLED_NPMRC,
 	};

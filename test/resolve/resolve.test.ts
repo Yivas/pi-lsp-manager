@@ -476,6 +476,35 @@ describe("server selection", () => {
 		).toEqual({ auxiliaries: [] });
 	});
 
+	it("keeps Vue primary and only uses already available diagnostic auxiliaries", () => {
+		const config = createDefaultConfig();
+		const file = { ...selectedFile, extension: ".vue", languageId: "vue" };
+		const available = selectionContext({
+			availableServerIds: new Set(["tailwindcss", "eslint"]),
+		});
+		const diagnostic = selectServers(config, file, "diagnostics", available);
+		expect(diagnostic.primary?.id).toBe("vue");
+		expect(diagnostic.auxiliaries.map((server) => server.id)).toEqual([
+			"eslint",
+			"tailwindcss",
+		]);
+		expect(diagnostic.installCandidate).toBeUndefined();
+		expect(selectServers(config, file, "semantic", available).primary?.id).toBe(
+			"vue",
+		);
+		expect(selectServers(config, file, "mutation", available).primary?.id).toBe(
+			"vue",
+		);
+		expect(
+			selectServers(
+				config,
+				file,
+				"diagnostics",
+				selectionContext({ projectTrusted: false }),
+			),
+		).toEqual({ auxiliaries: [] });
+	});
+
 	it("selects each role with its own language ID for a shared extension", () => {
 		const config = createDefaultConfig([
 			definition({

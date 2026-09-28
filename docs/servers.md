@@ -20,7 +20,7 @@ The following IDs are present in the catalog. Every entry other than `typescript
 | ID | Admission | Manual command and argv | Roles |
 |-|-|-|-|
 | `typescript` | `auto-installable` | `typescript-language-server --stdio` | diagnostics, semantic, mutation |
-| `vue` | candidate | `vue-language-server --stdio` | diagnostics, semantic, mutation |
+| `vue` | candidate | `vue-language-server --stdio` (see [manual Vue route](#manual-vue-route)) | diagnostics, semantic, mutation |
 | `biome` | candidate | `biome lsp-proxy` | diagnostics |
 | `tailwindcss` | candidate | `tailwindcss-language-server --stdio` | diagnostics |
 | `eslint` | candidate | `vscode-eslint-language-server --stdio` | diagnostics |
@@ -53,6 +53,10 @@ The following IDs are present in the catalog. Every entry other than `typescript
 | `haskell-language-server` | candidate | `haskell-language-server-wrapper --lsp` | diagnostics, semantic, mutation |
 
 Before using a candidate, review its catalog route and installed executable against the server's current documentation. Global configuration can override that route or supply a different complete route. `jdtls` has no built-in command route, so it requires `command`, `args`, `extensions`, `languageIds`, `roles`, and any required initialization or environment values in global configuration. A candidate is not supported merely because its executable is present or starts successfully.
+
+### Manual Vue route
+
+The manual Vue route requires `@vue/language-server@3.3.11`, `@vue/typescript-plugin@3.3.11`, and `typescript@5.9.3` in the same npm installation root. The project being analyzed supplies its own Vue dependencies; this route does not install them. Configure a global route whose command is the absolute Node executable and whose arguments are the absolute `<npm-root>/node_modules/@vue/language-server/bin/vue-language-server.js` path and `--stdio`. A launcher on `PATH` alone does not locate the plugin root for this bridge. The runtime checks the co-located versions before starting either process and returns `server_unavailable` with setup instructions if they are missing. The paired TypeScript process supplies script diagnostics and semantic results that Vue Language Server does not return on its own. Its rename fallback rejects edits to other files before writing. These operations passed a local Windows fixture; macOS and Linux have not yet been verified. The Vue recipe remains inactive, and a malformed CSS block did not produce a diagnostic in that fixture; neither auto-installation nor CSS diagnostics are claimed.
 
 ## TypeScript and JavaScript
 

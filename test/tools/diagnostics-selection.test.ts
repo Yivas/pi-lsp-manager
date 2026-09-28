@@ -7,6 +7,8 @@ import type {
 	EffectiveServerConfig,
 } from "../../src/contracts.js";
 import { TransientRuntimeError } from "../../src/runtime/retry.js";
+import { RuntimePool } from "../../src/runtime/pool.js";
+import { VueIntegrationUnavailableError } from "../../src/install/vue-packages.js";
 import { diagnostics } from "../../src/tools/diagnostics.js";
 import { ToolError, TrustedOperationService } from "../../src/tools/shared.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -109,6 +111,105 @@ describe("diagnostics server selection", () => {
 			if (auxiliaryAvailable) expect(withFile.mock.calls[1]?.[7]).toBe(false);
 		},
 	);
+
+	it("explains a missing Vue plugin or SDK without starting a server", async () => {
+		directory = await mkdtemp(join(tmpdir(), "pi-lsp-vue-manual-"));
+		const filePath = join(directory, "File.vue");
+		await writeFile(filePath, "<template>ok</template>");
+		const help =
+			"Install Vue Language Server 3.3.11 and its TypeScript plugin 3.3.11 with TypeScript 5.9.3 in one npm root.";
+		const vue = {
+			...server("vue", 100, false, "candidate"),
+			extensions: [".vue"],
+			languageIds: ["vue"],
+			manualHelp: help,
+		};
+		const config: EffectiveConfig = {
+			version: 1,
+			network: "offline",
+			autoInstall: false,
+			postEditDiagnostics: false,
+			servers: { vue },
+		};
+		const pool = new RuntimePool();
+		const service = new TrustedOperationService({
+			coordinator: () => undefined,
+			pool: () => pool,
+			load: async () => ({
+				config,
+				paths: {
+					globalConfigPath: "global",
+					projectConfigPath: "project",
+					managedStatePath: "managed",
+				},
+				globalLayer: "absent",
+				projectLayer: "absent",
+			}),
+			resolveCommand: async () => process.execPath,
+			start: async () => {
+				throw new VueIntegrationUnavailableError();
+			},
+		});
+		const ctx = {
+			cwd: directory,
+			isProjectTrusted: () => true,
+		} as unknown as ExtensionContext;
+		try {
+			const result = await diagnostics(service, ctx, { filePath }, undefined);
+			expect(result.details).toMatchObject({
+				code: "server_unavailable",
+				action: help,
+			});
+			expect(pool.size()).toBe(0);
+		} finally {
+			await pool.shutdown();
+		}
+	});
+
+	it("does not report partial Vue diagnostics as complete when the LSP times out", async () => {
+		const operation = {
+			target: { filePath: "/workspace/File.vue" },
+			server: { id: "vue" },
+			runtime: {
+				diagnostics: {
+					collect: async () => ({ ok: false, code: "diagnostics_timed_out" }),
+				},
+				vueDiagnostics: async () => [
+					{
+						range: {
+							start: { line: 0, character: 0 },
+							end: { line: 0, character: 1 },
+						},
+						message: "TypeScript error",
+					},
+				],
+				session: {
+					capabilities: {},
+					documents: { get: () => ({ version: 1, text: "" }) },
+				},
+			},
+			uri: "file:///workspace/File.vue",
+			diagnosticGeneration: 0,
+		};
+		const service = {
+			readDiagnostics: async (
+				_ctx: unknown,
+				_file: unknown,
+				work: (item: typeof operation) => Promise<unknown>,
+			) => [{ serverId: "vue", value: await work(operation) }],
+		} as unknown as TrustedOperationService;
+		const ctx = {
+			cwd: "/workspace",
+			isProjectTrusted: () => true,
+		} as unknown as ExtensionContext;
+		const result = await diagnostics(
+			service,
+			ctx,
+			{ filePath: "File.vue" },
+			undefined,
+		);
+		expect(result.details).toMatchObject({ code: "diagnostics_timed_out" });
+	});
 
 	it("merges diagnostics with deterministic order, deduplication, severity, source, and limits", async () => {
 		const diagnostic = (
