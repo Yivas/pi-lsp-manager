@@ -87,8 +87,11 @@ A row is added only after the pinned GitHub Actions job succeeds.
 | Windows Server 2022 runner | x64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33570309213) |
 | macOS 14 runner | arm64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33570309213) |
 | Ubuntu 24.04 runner | x64 | 22.19.0 | 0.84.1 peer | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/33570309213) |
+| Windows Server 2022 runner | x64 | 22.19.0 | 0.87.1 development host | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/36497904211) |
+| macOS 14 runner | arm64 | 22.19.0 | 0.87.1 development host | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/36497904211) |
+| Ubuntu 24.04 runner | x64 | 22.19.0 | 0.87.1 development host | [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/36497904211) |
 
-These rows describe the tested runners. They do not claim support for every Windows, macOS, or Linux release.
+The 0.84.1 rows record the original release fixture; the 0.87.1 rows record the current development host. Each row covers its tested runner, not every Windows, macOS, or Linux release or every Pi peer version.
 
 ## Installation recipe
 
