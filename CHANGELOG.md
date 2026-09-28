@@ -10,6 +10,7 @@
 ### Fixed
 
 - Multi-file `WorkspaceEdit` rollback now preserves external file changes and deletions and reports recovery artifacts left by cleanup failures.
+- Installation lock waiters retry when a lock is released between exclusive-open failure and the ownership read, instead of requiring manual repair.
 
 ## 0.2.0 - 2026-09-01
 

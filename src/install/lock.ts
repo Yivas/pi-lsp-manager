@@ -133,9 +133,20 @@ export async function acquireLock(
 	} catch (error: unknown) {
 		if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
 	}
-	const existingText = await fileSystem
-		.readFile(path, "utf8")
-		.catch(() => undefined);
+	let existingText: string;
+	try {
+		existingText = await fileSystem.readFile(path, "utf8");
+	} catch (error) {
+		// The owner may have renamed its lock away after our exclusive open failed.
+		// Wait for the caller to retry; never remove or replace an unproven owner.
+		return {
+			acquired: false,
+			state:
+				(error as NodeJS.ErrnoException).code === "ENOENT"
+					? "waiting-lock"
+					: "manual-repair",
+		};
+	}
 	const owner = existingText ? parseIdentity(existingText) : undefined;
 	if (!owner) return { acquired: false, state: "manual-repair" };
 	// Do not reclaim dead locks with read/compare/unlink. A user can repair them;

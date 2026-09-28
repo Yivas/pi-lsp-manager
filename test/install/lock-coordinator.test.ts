@@ -166,6 +166,49 @@ describe("conservative locks", () => {
 		).rejects.toThrow();
 	});
 
+	it("waits when a released lock disappears between exclusive open and ownership read", async () => {
+		const directory = await temporaryDirectory();
+		const path = join(directory, "released.lock");
+		const owner = {
+			pid: 42,
+			startedAt: 1,
+			nonce: "owner",
+			serverId: "typescript",
+			revision: "r",
+		};
+		let readError = Object.assign(new Error("lock was released"), {
+			code: "ENOENT",
+		});
+		const fileSystem: LockFileSystem = {
+			open: async () => {
+				throw Object.assign(new Error("lock existed"), { code: "EEXIST" });
+			},
+			readFile: async () => {
+				throw readError;
+			},
+			rename: async () => undefined,
+			link: async () => undefined,
+			rm: async () => undefined,
+		};
+		expect(
+			await acquireLock(path, owner, async () => true, fileSystem),
+		).toMatchObject({
+			acquired: false,
+			state: "waiting-lock",
+		});
+		readError = Object.assign(new Error("lock is unreadable"), {
+			code: "EACCES",
+		});
+		expect(
+			await acquireLock(path, owner, async () => true, fileSystem),
+		).toMatchObject({ acquired: false, state: "manual-repair" });
+		await writeFile(path, "{");
+		expect(await acquireLock(path, owner, async () => true)).toMatchObject({
+			acquired: false,
+			state: "manual-repair",
+		});
+	});
+
 	it("restores a foreign replacement injected between the ownership read and rename", async () => {
 		const directory = await temporaryDirectory();
 		const path = join(directory, "owned.lock");
@@ -256,7 +299,55 @@ describe("installation coordinator", () => {
 		expect(secondManager.starts).toBe(0);
 		firstManager.finish();
 		expect((await firstPending).status).toBe("ready");
-		expect((await secondPending).status).toBe("ready");
+		const secondResult = await secondPending;
+		expect(secondResult.status, secondResult.reason).toBe("ready");
+		expect(secondManager.starts).toBe(0);
+	});
+
+	it("reuses another coordinator's promotion after the lock vanishes during the ownership read", async () => {
+		const root = await temporaryDirectory();
+		const firstManager = new FakePackageManager();
+		firstManager.hold = true;
+		const secondManager = new FakePackageManager();
+		const first = coordinator(firstManager);
+		const node = await import("node:fs/promises");
+		let simulateRelease = true;
+		const second = coordinator(secondManager, {
+			lockFileSystem: {
+				open: async (path, flags, mode) => {
+					if (simulateRelease) {
+						throw Object.assign(new Error("lock existed"), { code: "EEXIST" });
+					}
+					return node.open(path, flags, mode);
+				},
+				readFile: async (path, encoding) => {
+					if (simulateRelease) {
+						simulateRelease = false;
+						throw Object.assign(new Error("lock was released"), {
+							code: "ENOENT",
+						});
+					}
+					return node.readFile(path, encoding);
+				},
+				rename: node.rename,
+				link: node.link,
+				rm: node.rm,
+			},
+		});
+		const firstPending = first.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+		});
+		await waitFor(() => firstManager.starts === 1);
+		const secondPending = second.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+		});
+		await waitFor(() => !simulateRelease);
+		firstManager.finish();
+		expect((await firstPending).status).toBe("ready");
+		const result = await secondPending;
+		expect(result.status, result.reason).toBe("ready");
 		expect(secondManager.starts).toBe(0);
 	});
 
