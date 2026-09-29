@@ -11,11 +11,11 @@ The catalog describes routing metadata. It does not download a server, run a pro
 | `tested` | The listed fixture, versions, and platforms passed the project's tests. |
 | `auto-installable` | A tested entry also has a fixed internal recipe that passed integrity, isolation, cancellation, and rollback checks. |
 
-The built-in catalog currently has one `auto-installable` entry and 31 `candidate` entries. It has no built-in `detected` or `tested` entries. `lsp_status` reports `available`, `runnable`, `routeConfigured`, `recipePresent`, and `installable` separately from `admission`.
+The built-in catalog currently has one `auto-installable` entry and 31 `candidate` entries. It has no built-in `detected` or `tested` entries. `lsp_status` reports `available`, `runnable`, `routeConfigured`, `recipePresent`, and `installable` separately from `admission`. Fixture runs against a manually configured route do not change the entry's admission or create a compatibility row; an entry becomes `tested` only through a registered compatibility row.
 
 ## Built-in catalog
 
-The following IDs are present in the catalog. Every entry other than `typescript` is a candidate only. The command and arguments shown are manual route metadata; they are not compatibility claims and are never auto-installed.
+The following IDs are present in the catalog. Every entry other than `typescript` is a candidate only. The command and arguments shown are manual route metadata; they are not compatibility claims and are never auto-installed. Fixture evidence for one manual route does not extend to another entry: no CSS diagnostics or Tailwind support are claimed.
 
 | ID | Admission | Manual command and argv | Roles |
 |-|-|-|-|
@@ -56,7 +56,13 @@ Before using a candidate, review its catalog route and installed executable agai
 
 ### Manual Vue route
 
-The manual Vue route requires `@vue/language-server@3.3.11`, `@vue/typescript-plugin@3.3.11`, and `typescript@5.9.3` in the same npm installation root. The project being analyzed supplies its own Vue dependencies; this route does not install them. Configure a global route whose command is the absolute Node executable and whose arguments are the absolute `<npm-root>/node_modules/@vue/language-server/bin/vue-language-server.js` path and `--stdio`. A launcher on `PATH` alone does not locate the plugin root for this bridge. The runtime checks the co-located versions before starting either process and returns `server_unavailable` with setup instructions if they are missing. The paired TypeScript process supplies script diagnostics and semantic results that Vue Language Server does not return on its own. Its rename fallback rejects edits to other files before writing. These operations passed a local Windows fixture; macOS and Linux have not yet been verified. The Vue recipe remains inactive, and a malformed CSS block did not produce a diagnostic in that fixture; neither auto-installation nor CSS diagnostics are claimed.
+The manual Vue route requires `@vue/language-server@3.3.11`, `@vue/typescript-plugin@3.3.11`, and `typescript@5.9.3` in the same npm installation root. The project being analyzed supplies its own Vue dependencies; this route does not install them. Configure a global route whose command is the absolute Node executable and whose arguments are the absolute `<npm-root>/node_modules/@vue/language-server/bin/vue-language-server.js` path and `--stdio`. A launcher on `PATH` alone does not locate the plugin root for this bridge. The runtime checks the co-located versions before starting either process and returns `server_unavailable` with setup instructions if they are missing. The paired TypeScript process supplies script diagnostics and semantic results that Vue Language Server does not return on its own. Its rename fallback rejects edits to other files before writing.
+
+The Vue fixture passed in CI on Windows Server 2022 x64, macOS 14 arm64, and Ubuntu 24.04 x64 with Node 22.19.0 and the 0.87.1 development host, against a locked installation built outside the checkout (`@vue/language-server@3.3.11`, `@vue/typescript-plugin@3.3.11`, `typescript@5.9.3`, and the fixture's `vue@3.5.43`) in runs [36577613761](https://github.com/Yivas/pi-lsp-manager/actions/runs/36577613761), [36583822782](https://github.com/Yivas/pi-lsp-manager/actions/runs/36583822782), [36598277835](https://github.com/Yivas/pi-lsp-manager/actions/runs/36598277835), and [36613182803](https://github.com/Yivas/pi-lsp-manager/actions/runs/36613182803).
+
+The fixture exercises diagnostics on an invalid script block, an invalid JavaScript block, and an invalid template, together with definition, references, document symbols, prepare rename, rename across script and template, a clean file, an untrusted project, and cancellation.
+
+Those runs are fixture evidence for the manual Vue route, not an admission change. They are not a compatibility row and do not make `vue` `tested`: `vue` remains `candidate`, no compatibility row has been registered, the recipe stays inactive, and auto-installation is not claimed. A malformed CSS block in that fixture still produced no diagnostic.
 
 ## TypeScript and JavaScript
 
