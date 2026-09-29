@@ -76,6 +76,16 @@ jobs:
           (cd "$gate" && npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org --userconfig=./npmrc --globalconfig=./global-npmrc --cache=./cache)
           VUE_CLI=$(node -p 'require("node:path").resolve(process.argv[1], "node_modules/@vue/language-server/bin/vue-language-server.js")' "$gate")
           RUN_REAL_VUE=1 VUE_CLI="$VUE_CLI" npm test -- test/real-servers/vue-language-server.test.ts
+      - name: Verify locked Tailwind installation and real Tailwind fixture
+        shell: bash
+        run: |
+          # Keep the gate outside the checkout so missing transitive packages cannot resolve from its node_modules.
+          gate=$(mktemp -d "${RUNNER_TEMP:-/tmp}/tailwindcss-gate.XXXXXX")
+          trap 'rm -rf -- "$gate"' EXIT
+          cp -R test/real-servers/gates/tailwindcss/. "$gate/"
+          (cd "$gate" && npm ci --ignore-scripts --no-audit --no-fund --registry=https://registry.npmjs.org --userconfig=./npmrc --globalconfig=./global-npmrc --cache=./cache)
+          TAILWIND_CLI=$(node -p 'require("node:path").resolve(process.argv[1], "node_modules/@tailwindcss/language-server/bin/tailwindcss-language-server")' "$gate")
+          RUN_REAL_TAILWIND=1 TAILWIND_CLI="$TAILWIND_CLI" npm test -- test/real-servers/tailwindcss.test.ts
       - name: Audit locked dependencies
         run: npm audit --audit-level=low
       - name: Inspect package contents

@@ -1,0 +1,9 @@
+{
+  "name": "pi-lsp-manager-tailwindcss-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "dependencies": {
+    "@tailwindcss/language-server": "0.16.0",
+    "tailwindcss": "4.3.3"
+  }
+}
