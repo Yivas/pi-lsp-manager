@@ -2,10 +2,13 @@ import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { DEFAULT_SERVERS } from "../../src/catalog/servers.js";
+import { loadConfig } from "../../src/config/load.js";
 import type {
 	EffectiveConfig,
 	EffectiveServerConfig,
 } from "../../src/contracts.js";
+import type { NodeLspSessionOptions } from "../../src/protocol/process.js";
 import { TransientRuntimeError } from "../../src/runtime/retry.js";
 import { RuntimePool } from "../../src/runtime/pool.js";
 import { VueIntegrationUnavailableError } from "../../src/install/vue-packages.js";
@@ -36,9 +39,13 @@ function server(
 
 describe("diagnostics server selection", () => {
 	let directory: string | undefined;
+	let agentDirectory: string | undefined;
 	afterEach(async () => {
 		if (directory) await rm(directory, { recursive: true, force: true });
+		if (agentDirectory)
+			await rm(agentDirectory, { recursive: true, force: true });
 		directory = undefined;
+		agentDirectory = undefined;
 	});
 
 	it.each([
@@ -112,43 +119,41 @@ describe("diagnostics server selection", () => {
 		},
 	);
 
-	it("explains a missing Vue plugin or SDK without starting a server", async () => {
+	it("runs the Vue manual route from global configuration and fails closed when the integration is unavailable", async () => {
 		directory = await mkdtemp(join(tmpdir(), "pi-lsp-vue-manual-"));
+		const agentRoot = await mkdtemp(join(tmpdir(), "pi-lsp-vue-agent-"));
+		agentDirectory = agentRoot;
 		const filePath = join(directory, "File.vue");
 		await writeFile(filePath, "<template>ok</template>");
-		const help =
-			"Install Vue Language Server 3.3.11 and its TypeScript plugin 3.3.11 with TypeScript 5.9.3 in one npm root.";
-		const vue = {
-			...server("vue", 100, false, "candidate"),
-			extensions: [".vue"],
-			languageIds: ["vue"],
-			manualHelp: help,
-		};
-		const config: EffectiveConfig = {
-			version: 1,
-			network: "offline",
-			autoInstall: false,
-			postEditDiagnostics: false,
-			servers: { vue },
-		};
-		const pool = new RuntimePool();
-		const service = new TrustedOperationService({
-			coordinator: () => undefined,
-			pool: () => pool,
-			load: async () => ({
-				config,
-				paths: {
-					globalConfigPath: "global",
-					projectConfigPath: "project",
-					managedStatePath: "managed",
+		const vue = DEFAULT_SERVERS.find((item) => item.id === "vue");
+		if (!vue) throw new Error("Vue catalog entry is required.");
+		const configuredArgs = ["vue-language-server.js", "--stdio"];
+		await writeFile(
+			join(agentDirectory, "pi-lsp-manager.json"),
+			JSON.stringify({
+				version: 1,
+				servers: {
+					vue: { command: process.execPath, args: configuredArgs },
 				},
-				globalLayer: "absent",
-				projectLayer: "absent",
 			}),
-			resolveCommand: async () => process.execPath,
-			start: async () => {
+		);
+		const pool = new RuntimePool();
+		const coordinator = vi.fn();
+		const start = vi.fn(
+			async (_options: NodeLspSessionOptions): Promise<never> => {
 				throw new VueIntegrationUnavailableError();
 			},
+		);
+		const service = new TrustedOperationService({
+			coordinator: () => {
+				coordinator();
+				return undefined;
+			},
+			pool: () => pool,
+			load: (options) => loadConfig({ ...options, agentDirectory: agentRoot }),
+			resolveCommand: async (command) =>
+				command === process.execPath ? process.execPath : undefined,
+			start,
 		});
 		const ctx = {
 			cwd: directory,
@@ -158,8 +163,19 @@ describe("diagnostics server selection", () => {
 			const result = await diagnostics(service, ctx, { filePath }, undefined);
 			expect(result.details).toMatchObject({
 				code: "server_unavailable",
-				action: help,
+				action: vue.manualHelp,
 			});
+			// Startup receives the command resolved from the global configuration.
+			expect(start).toHaveBeenCalledTimes(1);
+			const started = start.mock.calls[0]?.[0];
+			expect(started?.launch).toEqual({
+				command: process.execPath,
+				args: configuredArgs,
+				shell: false,
+			});
+			expect(started?.server.id).toBe("vue");
+			expect(started?.vueExecutablePath).toBe(process.execPath);
+			expect(coordinator).not.toHaveBeenCalled();
 			expect(pool.size()).toBe(0);
 		} finally {
 			await pool.shutdown();

@@ -505,6 +505,26 @@ describe("server selection", () => {
 		).toEqual({ auxiliaries: [] });
 	});
 
+	it("keeps every web diagnostics route without an install candidate", () => {
+		const config = createDefaultConfig();
+		for (const [extension, languageId, primaryId] of [
+			[".vue", "vue", "vue"],
+			[".html", "html", "eslint"],
+			[".css", "css", "biome"],
+		] as const) {
+			// The generic resolver still selects a diagnostics candidate for the
+			// extension; admission never marks one installable, so nothing is installed.
+			const selection = selectServers(
+				config,
+				{ ...selectedFile, extension, languageId },
+				"diagnostics",
+				selectionContext(),
+			);
+			expect(selection.primary?.id).toBe(primaryId);
+			expect(selection.installCandidate).toBeUndefined();
+		}
+	});
+
 	it("selects each role with its own language ID for a shared extension", () => {
 		const config = createDefaultConfig([
 			definition({
