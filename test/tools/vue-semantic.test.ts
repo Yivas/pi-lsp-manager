@@ -103,7 +103,16 @@ describe("Vue semantic fallback boundaries", () => {
 	let filePath = "";
 
 	afterEach(async () => {
-		if (rootPath) await rm(rootPath, { recursive: true, force: true });
+		if (rootPath) {
+			// Retry transient ENOTEMPTY during Windows temp cleanup; persistent
+			// errors still fail.
+			await rm(rootPath, {
+				recursive: true,
+				force: true,
+				maxRetries: 10,
+				retryDelay: 50,
+			});
+		}
 		rootPath = "";
 		filePath = "";
 	});
