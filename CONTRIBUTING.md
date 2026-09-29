@@ -33,6 +33,8 @@ RUN_REAL_LSP=1 npm test -- test/real-servers/typescript-language-server.test.ts
 RUN_REAL_VUE=1 npm test -- test/real-servers/vue-language-server.test.ts
 ```
 
+For the Vue fixture, `VUE_CLI` may point to the absolute `vue-language-server.js` path in a separate locked npm installation. That npm root must place `vue@3.5.43` beside `@vue/language-server@3.3.11`, the TypeScript plugin 3.3.11 and TypeScript 5.9.3; without `VUE_CLI`, the fixture uses this repository's locked development dependencies. The Vue pin belongs to the fixture, not to the manual-server requirement: an analyzed project supplies its own Vue dependencies.
+
 Document the exact server, language, Pi, Node.js, operating-system, and architecture versions for any compatibility claim. Do not describe a catalog candidate or detected executable as supported without a passing real fixture and an exact compatibility row.
 
 ## License and conduct

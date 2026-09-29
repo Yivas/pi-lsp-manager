@@ -64,7 +64,8 @@ jobs:
       - name: Verify locked Vue installation and real Vue fixture
         shell: bash
         run: |
-          gate=$(mktemp -d test/.vue-install-gate.XXXXXX)
+          # Keep the gate outside the checkout so missing transitive packages cannot resolve from its node_modules.
+          gate=$(mktemp -d "${RUNNER_TEMP:-/tmp}/vue-install-gate.XXXXXX")
           trap 'rm -rf -- "$gate"' EXIT
           node --input-type=module - "$gate" <<'EOF'
           import { resolve } from 'node:path';

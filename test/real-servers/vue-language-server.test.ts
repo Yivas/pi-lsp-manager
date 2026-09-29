@@ -1,5 +1,14 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import {
+	mkdtemp,
+	mkdir,
+	readFile,
+	realpath,
+	rm,
+	symlink,
+	writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import type { EffectiveConfig } from "../../src/contracts.js";
 import { NodeLspRuntimeSession } from "../../src/protocol/process.js";
 import { RuntimePool } from "../../src/runtime/pool.js";
@@ -63,10 +72,24 @@ describe.runIf(runReal)("Vue Language Server 3.3.11", () => {
 	});
 
 	it("reports invalid SFC diagnostics without installing a server", async () => {
-		// The project resolves Vue from this repo's locked devDependencies.
-		workspace = await mkdtemp(resolve("test/.vue-real-"));
+		// Keep the workspace outside the checkout. Its Vue package comes from the
+		// npm root that owns VUE_CLI, not the checkout's ambient node_modules.
+		workspace = await mkdtemp(join(tmpdir(), "pi-lsp-vue-real-"));
 		const root = workspace;
+		const modules = resolve(dirname(await realpath(cli)), "../../..");
+		const vuePackage = join(modules, "vue");
+		// The fixture uses the Vue version pinned by the isolated recipe.
+		const vueManifest = JSON.parse(
+			await readFile(join(vuePackage, "package.json"), "utf8"),
+		) as { version?: string };
+		expect(vueManifest.version).toBe("3.5.43");
 		await mkdir(join(root, "src"));
+		await mkdir(join(root, "node_modules"));
+		await symlink(
+			vuePackage,
+			join(root, "node_modules", "vue"),
+			process.platform === "win32" ? "junction" : "dir",
+		);
 		await writeFile(
 			join(workspace, "package.json"),
 			JSON.stringify({
