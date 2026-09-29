@@ -63,6 +63,107 @@ describe("JSON-RPC LSP session", () => {
 		client.close();
 		fake.dispose();
 	});
+	it("acknowledges an empty capability registration during initialize", async () => {
+		const { client, server: fake } = channels();
+		let registration: unknown = "unanswered";
+		fake.onRequest("initialize", async () => {
+			registration = await fake.sendRequest("client/registerCapability", {
+				registrations: [],
+			});
+			return { capabilities: {} };
+		});
+		const session = new LspSession(client, {
+			rootPath: process.cwd(),
+			server,
+		});
+		expect(await session.initialize()).toBe(true);
+		expect(registration).toBeNull();
+		client.close();
+		fake.dispose();
+	});
+	it("acknowledges an empty capability unregistration", async () => {
+		const { client, server: fake } = channels();
+		new LspSession(client, { rootPath: process.cwd(), server });
+		await expect(
+			fake.sendRequest("client/unregisterCapability", {
+				unregisterations: [],
+			}),
+		).resolves.toBeNull();
+		client.close();
+		fake.dispose();
+	});
+	it("rejects malformed capability registration params", async () => {
+		const { client, server: fake } = channels();
+		new LspSession(client, { rootPath: process.cwd(), server });
+		for (const params of [
+			{},
+			{ registrations: null },
+			{ registrations: "all" },
+			null,
+			undefined,
+			"all",
+			42,
+			true,
+			[],
+			[1, 2],
+		]) {
+			await expect(
+				fake.sendRequest("client/registerCapability", params),
+			).rejects.toMatchObject({
+				code: -32602,
+				message: "registration params must contain an array",
+			});
+		}
+		client.close();
+		fake.dispose();
+	});
+	it("rejects a non-empty registration and keeps server capabilities unchanged", async () => {
+		const { client, server: fake } = channels();
+		const session = new LspSession(client, {
+			rootPath: process.cwd(),
+			server,
+		});
+		await expect(
+			fake.sendRequest("client/registerCapability", {
+				registrations: [
+					{
+						id: "watched-files",
+						method: "workspace/didChangeWatchedFiles",
+						registerOptions: { watchers: [{ globPattern: "**/*.css" }] },
+					},
+				],
+			}),
+		).rejects.toMatchObject({ code: -32601 });
+		await expect(
+			fake.sendRequest("client/unregisterCapability", {
+				unregisterations: [
+					{ id: "watched-files", method: "workspace/didChangeWatchedFiles" },
+				],
+			}),
+		).rejects.toMatchObject({ code: -32601 });
+		// A rejected list changes no observable session state: the advertised
+		// capabilities stay empty and the next empty list is still acknowledged.
+		expect(session.capabilities).toEqual({});
+		await expect(
+			fake.sendRequest("client/registerCapability", { registrations: [] }),
+		).resolves.toBeNull();
+		client.close();
+		fake.dispose();
+	});
+	it("answers workspace folder requests with the configured folders", async () => {
+		const { client, server: fake } = channels();
+		const folders = [{ uri: "file:///workspace", name: "workspace" }];
+		new LspSession(client, {
+			rootPath: process.cwd(),
+			server,
+			workspaceFolders: folders,
+		});
+		await expect(
+			fake.sendRequest("workspace/workspaceFolders", null),
+		).resolves.toEqual(folders);
+		client.close();
+		fake.dispose();
+	});
 	it("returns terminal connection states before sending requests", async () => {
 		const { client, server: fake } = channels();
 		const aborted = new AbortController();

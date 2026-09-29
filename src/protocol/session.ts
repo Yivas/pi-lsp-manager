@@ -1,8 +1,36 @@
 import { pathToFileURL } from "node:url";
+import { ErrorCodes, ResponseError } from "vscode-jsonrpc/node";
 import type { EffectiveServerConfig } from "../contracts.js";
 import { clientCapabilities, type ServerCapabilities } from "./capabilities.js";
 import type { LspConnection } from "./connection.js";
 import { DocumentStore } from "./documents.js";
+
+// `unregisterations` is the misspelling the LSP specification defines.
+type RegistrationField = "registrations" | "unregisterations";
+
+// The client never advertises dynamicRegistration, so it acknowledges only an
+// empty registration list and refuses every other shape without keeping state.
+function acknowledgeEmptyRegistration(
+	params: unknown,
+	field: RegistrationField,
+): null {
+	const registrations = (params as Record<string, unknown> | undefined)?.[
+		field
+	];
+	if (!Array.isArray(registrations)) {
+		throw new ResponseError(
+			ErrorCodes.InvalidParams,
+			"registration params must contain an array",
+		);
+	}
+	if (registrations.length > 0) {
+		throw new ResponseError(
+			ErrorCodes.MethodNotFound,
+			"dynamic registration is not supported",
+		);
+	}
+	return null;
+}
 
 export interface LspSessionOptions {
 	rootPath: string;
@@ -32,6 +60,12 @@ export class LspSession {
 				options.workspaceFolders ?? [
 					{ uri: pathToFileURL(options.rootPath).href, name: "workspace" },
 				],
+		);
+		connection.onRequest("client/registerCapability", (params) =>
+			acknowledgeEmptyRegistration(params, "registrations"),
+		);
+		connection.onRequest("client/unregisterCapability", (params) =>
+			acknowledgeEmptyRegistration(params, "unregisterations"),
 		);
 	}
 
