@@ -23,8 +23,11 @@ npm run format:check
 npm run lint
 npm run typecheck
 npm test
+npm run audit:check
 npm run pack:check
 ```
+
+`npm run audit:check` runs the full `npm audit --json` over the locked tree and fails on any finding except the single development-only exception documented in the [security model](docs/security-model.md). `npm run audit:full` runs the same audit without that exception when you want the raw result.
 
 Changes to pinned real-server behavior must also run the applicable fixture, for example:
 

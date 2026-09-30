@@ -106,7 +106,7 @@ jobs:
             if [ -n "$gate" ]; then rm -rf -- "$gate"; fi
           done
       - name: Audit locked dependencies
-        run: npm audit --audit-level=low
+        run: npm run audit:check
       - name: Inspect package contents
         run: npm run pack:check
       - name: Install and load the packed extension in isolation

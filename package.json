@@ -36,6 +36,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "audit:check": "node scripts/check-lock-audit.mjs",
+    "audit:full": "npm audit --audit-level=low",
     "pack:check": "npm pack --dry-run"
   },
   "peerDependencies": {

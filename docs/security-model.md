@@ -64,6 +64,14 @@ User-facing errors are stable codes with short recovery guidance. Output is boun
 
 The private installation audit records decisions and integrity metadata, not secrets or project content. `lsp_status` exposes state such as availability and admission, not command argv, route environment, PATH, or private paths.
 
+## Development dependency audit
+
+CI runs `npm run audit:check`, which executes the full `npm audit --json --audit-level=low` over the locked tree, validates the report, and fails closed on unreadable, malformed, or unfamiliar output. It accepts exactly one finding: the development-only `brace-expansion@5.0.9` nested under the pinned, development-only `@earendil-works/pi-coding-agent@0.87.1`, whose published `npm-shrinkwrap.json` forces that version.
+
+The accepted advisories are `GHSA-q2hr-2g5m-vwhr`, `GHSA-qhr7-859c-m2p7`, and `GHSA-6j4f-fj2g-mc7p`. The exception holds only while the lockfile entry, the installed manifests, and the nested shrinkwrap agree on the exact package, version, parent, and integrity; any other package, path, version, advisory, or production finding fails the gate. The gate forces the development tree into the audit (`--include=dev`), so an `omit=dev`, `NODE_ENV=production`, or `production=true` npm configuration cannot hide it and return a false clean result. It does not hide the installed version or claim a fix: the development tree still installs the vulnerable version, and that version never reaches the published package or its consumers, because the package ships no lockfile and its only runtime dependency is `vscode-jsonrpc`.
+
+`npm run audit:full` runs the same audit without the exception. The exception is temporary and tracked in the upstream issues [#5653](https://github.com/earendil-works/pi/issues/5653) (open, move off the shipped shrinkwrap) and [#7628](https://github.com/earendil-works/pi/issues/7628) (closed as no-action, about the 0.83.0 shrinkwrap pins). Remove the exception when an upstream Pi release installs `brace-expansion` 5.0.12 or newer in both the lockfile and the installed tree. A clean report is only taken as a stale exception when the pinned version is really gone from the lock, the installed tree, and the shrinkwrap; a clean report while it is still installed is rejected as contradictory instead of passing silently. The gate also cross-checks the installed hidden lock when it exists, but that check is optional: the lock, the installed manifests, and the shrinkwrap already cover the same facts.
+
 ## Reporting a vulnerability
 
 Follow [SECURITY.md](../SECURITY.md). Do not include credentials, private source code, or sensitive paths in a public issue.
