@@ -134,3 +134,13 @@ Standard proxy environment variables may be inherited by npm during an authorize
 The built-in directory exclusions are `.git`, `.hg`, `.svn`, `node_modules`, `bower_components`, `vendor`, `dist`, `build`, `out`, `target`, `coverage`, `.nyc_output`, `.cache`, `.parcel-cache`, `.turbo`, `.next`, `.nuxt`, `tmp`, `temp`, `.tmp`, `.venv`, `venv`, `env`, `.env`, `__pycache__`, `.tox`, and `.gradle`.
 
 Restart or reload the Pi session after changing global executable settings. Use `/lsp policy` and `lsp_status` to inspect the effective policy without exposing private paths.
+
+## Trusted installer interpreter (unreleased)
+
+A future Python recipe installs a pinned wheel with `pip` through a Python interpreter the user names explicitly. The global layer accepts one optional key:
+
+| Key | Default | Meaning |
+|-|-|-|
+| `pythonInterpreter` | unset | Absolute path of the trusted Python used only to install Python recipes. |
+
+The value is global-only: a project file that sets it is rejected as invalid. The path must be absolute, without shell syntax, quotes or `..` segments. An empty or missing value is the manual fallback: the extension installs nothing and reports what to configure. It never resolves `python` from `PATH` and never uses a project virtual environment or the `py` launcher. The key is inert until a Python recipe is admitted; `ty` and `ruff` stay `candidate` and their manual routes keep working.

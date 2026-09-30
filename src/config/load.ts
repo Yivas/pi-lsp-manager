@@ -306,6 +306,9 @@ function applyGlobal(
 	}
 	return {
 		version: 1,
+		...(global.pythonInterpreter
+			? { pythonInterpreter: global.pythonInterpreter }
+			: {}),
 		network: global.network === "offline" ? "offline" : defaults.network,
 		autoInstall: defaults.autoInstall && (global.autoInstall ?? true),
 		postEditDiagnostics:

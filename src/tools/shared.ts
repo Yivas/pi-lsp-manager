@@ -13,8 +13,13 @@ import { createServerLaunch } from "../install/launch.js";
 import {
 	evaluateInstallPolicy,
 	type InstallOrigin,
+	type InstallPolicyDecision,
 } from "../install/policy.js";
 import { resolveExecutable } from "../install/executable.js";
+import {
+	pythonExecutablePath,
+	resolveTrustedPythonInterpreter,
+} from "../install/adapters/python.js";
 import { VueIntegrationUnavailableError } from "../install/vue-packages.js";
 import type {
 	InstallCoordinator,
@@ -22,7 +27,7 @@ import type {
 } from "../install/coordinator.js";
 import { getRecipe, type InstallRecipe } from "../install/catalog.js";
 import {
-	createNodeInstallationVerifier,
+	createManagedInstallationVerifier,
 	type InstallationVerifier,
 } from "../install/verify.js";
 import type { ConnectionFailure } from "../protocol/connection.js";
@@ -177,8 +182,12 @@ function managedExecutablePath(
 	recipe: InstallRecipe,
 	platform: NodeJS.Platform,
 ): string {
+	const installation = managedInstallationPath(loaded, recipe);
+	// One definition of the Python `<installation>/bin` layout lives in the adapter.
+	if (recipe.kind === "python")
+		return pythonExecutablePath(installation, recipe.executable, platform);
 	return join(
-		managedInstallationPath(loaded, recipe),
+		installation,
 		"node_modules",
 		".bin",
 		platform === "win32" ? `${recipe.executable}.cmd` : recipe.executable,
@@ -203,7 +212,7 @@ export class TrustedOperationService {
 		this.platform = options.platform ?? process.platform;
 		this.verifyInstallation =
 			options.verifyInstallation ??
-			createNodeInstallationVerifier(this.platform);
+			createManagedInstallationVerifier(this.platform);
 		this.architecture = options.architecture ?? process.arch;
 	}
 
@@ -268,7 +277,8 @@ export class TrustedOperationService {
 		loaded: LoadedConfig,
 		server: EffectiveServerConfig,
 		origin: InstallOrigin,
-		signal?: AbortSignal,
+		signal: AbortSignal | undefined,
+		workspacePath: string,
 		installIfMissing = true,
 	): Promise<string> {
 		const executable = await this.resolveCommand(
@@ -288,6 +298,9 @@ export class TrustedOperationService {
 				origin === "explicit" || loaded.projectLayer !== "not-read",
 			platform: this.platform,
 			architecture: this.architecture,
+			...(loaded.config.pythonInterpreter
+				? { pythonInterpreter: loaded.config.pythonInterpreter }
+				: {}),
 		});
 		if (!decision.allowed)
 			throw new ToolError(
@@ -299,9 +312,16 @@ export class TrustedOperationService {
 		const coordinator = this.options.coordinator();
 		if (!coordinator)
 			throw new ToolError("runtime_failed", "Restart Pi and retry.");
+		const pythonInterpreter = await this.trustedPythonInterpreter(
+			decision,
+			loaded.config.pythonInterpreter,
+			workspacePath,
+			signal,
+		);
 		const installed = await coordinator.install({
 			decision,
 			managedStatePath: loaded.paths.managedStatePath,
+			...(pythonInterpreter ? { pythonInterpreter } : {}),
 			...(signal ? { signal } : {}),
 		});
 		if (installed.status !== "ready" || !installed.executable)
@@ -312,6 +332,26 @@ export class TrustedOperationService {
 					: server.manualHelp,
 			);
 		return installed.executable.path;
+	}
+
+	/** Resolves the trusted installer interpreter before any managed state or process exists. */
+	private async trustedPythonInterpreter(
+		decision: InstallPolicyDecision,
+		configured: string | undefined,
+		workspacePath: string,
+		signal: AbortSignal | undefined,
+	): Promise<string | undefined> {
+		if (!decision.allowed || decision.recipe.kind !== "python")
+			return undefined;
+		if (signal?.aborted) throw new ToolError("cancelled", "Retry the request.");
+		const trusted = await resolveTrustedPythonInterpreter(configured, {
+			workspacePath,
+			cwd: process.cwd(),
+			platform: this.platform,
+		});
+		if (!trusted.ok)
+			throw new ToolError("server_unavailable", decision.recipe.manualHelp);
+		return trusted.path;
 	}
 
 	public async withFile<T>(
@@ -388,6 +428,7 @@ export class TrustedOperationService {
 			server,
 			origin,
 			signal,
+			ctx.cwd,
 			installIfMissing,
 		);
 		const launch = createServerLaunch(
@@ -902,6 +943,9 @@ export class TrustedOperationService {
 			projectTrusted: true,
 			platform: this.platform,
 			architecture: this.architecture,
+			...(loaded.config.pythonInterpreter
+				? { pythonInterpreter: loaded.config.pythonInterpreter }
+				: {}),
 		});
 		if (!decision.allowed)
 			throw new ToolError(
@@ -913,9 +957,16 @@ export class TrustedOperationService {
 		const coordinator = this.options.coordinator();
 		if (!coordinator)
 			throw new ToolError("runtime_failed", "Restart Pi and retry.");
+		const pythonInterpreter = await this.trustedPythonInterpreter(
+			decision,
+			loaded.config.pythonInterpreter,
+			ctx.cwd,
+			signal,
+		);
 		const result = await coordinator.install({
 			decision,
 			managedStatePath: loaded.paths.managedStatePath,
+			...(pythonInterpreter ? { pythonInterpreter } : {}),
 			...(signal ? { signal } : {}),
 		});
 		if (result.status !== "ready")

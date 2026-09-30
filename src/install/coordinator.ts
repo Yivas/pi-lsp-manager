@@ -7,14 +7,10 @@ import {
 	type InstallResidual,
 } from "./audit.js";
 import { acquireLock, type LockFileSystem, type LockIdentity } from "./lock.js";
-import {
-	createPackageManagerLaunch,
-	prepareControlledNpmFiles,
-	readControlledNpmFiles,
-	validateControlledNpmFiles,
-	type ControlledNpmFiles,
-	type PackageManagerLaunch,
-} from "./launch.js";
+import { recipeAdapter } from "./adapters/index.js";
+import type { InstallPlatformContext } from "./adapters/types.js";
+import type { InstallRecipe } from "./catalog.js";
+import type { PackageManagerLaunch } from "./launch.js";
 import { resolveExecutable } from "./executable.js";
 import { sanitizeText } from "./sanitize.js";
 import {
@@ -90,10 +86,13 @@ export interface CoordinatorDependencies {
 	terminationBudgetMs?: number;
 	/** Bound for releasing the per-server lock during cleanup. */
 	releaseBudgetMs?: number;
+	/** Host architecture the adapter uses to select the Python wheel. */
+	architecture?: NodeJS.Architecture;
 	prepareStaging?: (
 		path: string,
-		decision: Extract<InstallPolicyDecision, { allowed: true }>["recipe"],
-	) => Promise<ControlledNpmFiles>;
+		recipe: InstallRecipe,
+		context: InstallPlatformContext,
+	) => Promise<unknown>;
 	resolvePackageManagerCommand?: (
 		command: string,
 		environment: NodeJS.ProcessEnv,
@@ -105,6 +104,8 @@ export interface InstallRequest {
 	decision: InstallPolicyDecision;
 	managedStatePath: string;
 	signal?: AbortSignal;
+	/** Absolute path already trusted before this request; only Python recipes use it. */
+	pythonInterpreter?: string;
 	/** Only the request that starts a singleflight receives the complete phase sequence. */
 	onPhase?: (phase: InstallPhase) => void;
 }
@@ -247,6 +248,7 @@ export class InstallCoordinator {
 			audit: dependencies.audit ?? appendAuditRecord,
 			environment: dependencies.environment ?? process.env,
 			platform,
+			architecture: dependencies.architecture ?? process.arch,
 			npmCommand: dependencies.npmCommand ?? "npm",
 			installTimeoutMs: dependencies.installTimeoutMs ?? 120_000,
 			terminationBudgetMs:
@@ -255,7 +257,10 @@ export class InstallCoordinator {
 					? WINDOWS_TERMINATION_BUDGET_MS
 					: UNIX_TERMINATION_BUDGET_MS),
 			releaseBudgetMs: dependencies.releaseBudgetMs ?? RELEASE_BUDGET_MS,
-			prepareStaging: dependencies.prepareStaging ?? prepareControlledNpmFiles,
+			prepareStaging:
+				dependencies.prepareStaging ??
+				((path, recipe, context) =>
+					recipeAdapter(recipe).prepareStaging(path, recipe, context)),
 			resolvePackageManagerCommand:
 				dependencies.resolvePackageManagerCommand ?? resolveExecutable,
 		};
@@ -380,6 +385,17 @@ export class InstallCoordinator {
 			}
 			return result;
 		};
+		const adapter = recipeAdapter(recipe);
+		const context: InstallPlatformContext = {
+			platform: this.dependencies.platform,
+			architecture: this.dependencies.architecture,
+			...(request.pythonInterpreter
+				? { pythonInterpreter: request.pythonInterpreter }
+				: {}),
+		};
+		const preflight = adapter.preflight(recipe, context);
+		if (!preflight.ok)
+			return finish({ status: "failed", reason: preflight.reason });
 		try {
 			await ensureSafeDirectory(managed);
 			await ensureSafeDirectory(join(managed, "servers"));
@@ -432,29 +448,31 @@ export class InstallCoordinator {
 			});
 			await ensureSafeDirectory(staging);
 			const prepared = await raceAbort(
-				this.dependencies.prepareStaging(staging, recipe),
+				this.dependencies.prepareStaging(staging, recipe, context),
 				signal,
 			);
-			const onDisk = await raceAbort(readControlledNpmFiles(staging), signal);
+			const onDisk = await raceAbort(adapter.readStaging(staging), signal);
 			if (
-				!validateControlledNpmFiles(recipe, prepared) ||
-				!validateControlledNpmFiles(recipe, onDisk)
+				!adapter.validate(recipe, prepared, context) ||
+				!adapter.validate(recipe, onDisk, context)
 			) {
 				return finish({ status: "failed", reason: "recipe_lock_invalid" });
 			}
 			const npmPath = await raceAbort(
-				this.dependencies.resolvePackageManagerCommand(
-					this.dependencies.npmCommand,
-					this.dependencies.environment,
-					this.dependencies.platform,
-				),
+				adapter.resolveManager({
+					recipe,
+					context,
+					command: this.dependencies.npmCommand,
+					environment: this.dependencies.environment,
+					resolve: this.dependencies.resolvePackageManagerCommand,
+				}),
 				signal,
 			);
 			if (!npmPath)
 				return finish({ status: "failed", reason: "package_manager_missing" });
 			phase("installing");
 			startPromise = this.dependencies.packageManager.start(
-				createPackageManagerLaunch(
+				adapter.createLaunch(
 					recipe,
 					staging,
 					npmPath,

@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { InstallCoordinator } from "./install/coordinator.js";
 import { NodePackageManager } from "./install/npm.js";
-import { createNodeInstallationVerifier } from "./install/verify.js";
+import { createManagedInstallationVerifier } from "./install/verify.js";
 import { RuntimePool } from "./runtime/pool.js";
 import { RuntimeReaper } from "./runtime/reaper.js";
 import { isLspTool, LspActivity } from "./host/activity.js";
@@ -79,7 +79,7 @@ export function createShutdownHandler(
 export default function registerExtension(pi: ExtensionAPI): void {
 	coordinator = new InstallCoordinator({
 		packageManager: new NodePackageManager(),
-		verifier: createNodeInstallationVerifier(),
+		verifier: createManagedInstallationVerifier(),
 	});
 	runtimePool = new RuntimePool({ onActive: () => runtimeReaper?.start() });
 	runtimeReaper = new RuntimeReaper(runtimePool);

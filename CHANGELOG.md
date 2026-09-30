@@ -6,6 +6,7 @@
 
 - Built-in Vue Language Server route for `.vue` files using `vue-language-server --stdio`. On `main` it is `auto-installable` through an internal recipe, with verified Windows x64, macOS arm64, and Linux x64 rows on Node 22.19.0 and the 0.87.1 development host. The published `0.2.0` release remains TypeScript-only and does not claim this route.
 - Vue Language Server 3.3.11 pairs with a pinned `@vue/typescript-plugin` 3.3.11 and TypeScript 5.9.3 for script diagnostics and semantic operations. Its locked recipe installs `@vue/language-server` 3.3.11, `@vue/typescript-plugin` 3.3.11, `typescript` 5.9.3, and `vue` 3.5.43 from one complete lockfile.
+- An internal, inactive Python installation adapter installs a pinned wheel through the trusted interpreter named by the global `pythonInterpreter` key. No Python recipe is registered: `ty` and `ruff` remain manual candidates pending measured gates, and the key does nothing until one is admitted.
 
 ### Fixed
 

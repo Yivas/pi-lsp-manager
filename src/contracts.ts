@@ -1,5 +1,4 @@
 export const SERVER_ROLES = ["diagnostics", "semantic", "mutation"] as const;
-
 export type ServerRole = (typeof SERVER_ROLES)[number];
 export type NetworkPolicy = "auto" | "offline";
 export type ServerAdmission =
@@ -80,6 +79,8 @@ export interface ProjectServerConfig {
 
 export interface GlobalConfig {
 	version: 1;
+	/** Absolute path of the trusted interpreter that installs Python recipes; global layer only. */
+	pythonInterpreter?: string;
 	network?: NetworkPolicy;
 	autoInstall?: boolean;
 	postEditDiagnostics?: boolean;
@@ -118,11 +119,32 @@ export interface EffectiveServerConfig {
 
 export interface EffectiveConfig {
 	version: 1;
+	pythonInterpreter?: string;
 	network: NetworkPolicy;
 	autoInstall: boolean;
 	postEditDiagnostics: boolean;
 	diagnostics?: DiagnosticConfig;
 	servers: Readonly<Record<string, EffectiveServerConfig>>;
+}
+
+/**
+ * Strict shape of the trusted installer interpreter path: absolute, without shell syntax
+ * or quotes, and without parent segments that could escape the filesystem location.
+ */
+export function isSafeAbsolutePath(value: string): boolean {
+	if (
+		value.length === 0 ||
+		value.length > 4_096 ||
+		/[&|<>^%"'`\r\n\0]/.test(value)
+	)
+		return false;
+	const normalized = value.replaceAll("\\", "/");
+	if (normalized.split("/").some((segment) => segment === "..")) return false;
+	return (
+		/^[A-Za-z]:\//.test(normalized) ||
+		normalized.startsWith("//") ||
+		normalized.startsWith("/")
+	);
 }
 
 export interface ResolvedFile {

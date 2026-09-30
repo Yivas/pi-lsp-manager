@@ -10,7 +10,8 @@ export type InstallDenyReason =
 	| "offline"
 	| "unsupported_platform"
 	| "recipe_missing"
-	| "recipe_not_admitted";
+	| "recipe_not_admitted"
+	| "package_manager_missing";
 
 export type InstallPolicyDecision =
 	| { allowed: true; recipe: InstallRecipe }
@@ -24,6 +25,10 @@ export interface InstallPolicyInput {
 	projectTrusted: boolean;
 	platform: NodeJS.Platform;
 	architecture: NodeJS.Architecture;
+	/** Global-only trusted installer interpreter; a Python recipe denies without it. */
+	pythonInterpreter?: string;
+	/** Test seam over the frozen recipe registry; production uses the real lookup. */
+	recipeLookup?: (serverId: string) => InstallRecipe | undefined;
 }
 
 const NO_RECIPE_HELP = "No approved automatic recipe exists for this server.";
@@ -54,7 +59,7 @@ export function evaluateInstallPolicy(
 	if (config.network === "offline") {
 		return { allowed: false, reason: "offline", manualHelp: server.manualHelp };
 	}
-	const recipe = getRecipe(input.serverId);
+	const recipe = (input.recipeLookup ?? getRecipe)(input.serverId);
 	if (!recipe) {
 		return {
 			allowed: false,
@@ -97,6 +102,15 @@ export function evaluateInstallPolicy(
 			allowed: false,
 			reason: "auto_install_disabled",
 			manualHelp: server.manualHelp,
+		};
+	}
+	// The interpreter is only required once trust and auto-install allow the install, so an
+	// untrusted or auto-install-disabled project keeps reporting that primary denial.
+	if (recipe.kind === "python" && !input.pythonInterpreter) {
+		return {
+			allowed: false,
+			reason: "package_manager_missing",
+			manualHelp: recipe.manualHelp,
 		};
 	}
 	return { allowed: true, recipe };

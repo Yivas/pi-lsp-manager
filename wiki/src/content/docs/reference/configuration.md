@@ -33,6 +33,10 @@ The extension does not import `pi-lsp.json`, `lsp.json`, editor settings, or ano
 
 For a complete manual route example, see [manual routes](/pi-lsp-manager/guides/manual-routes/). For catalog and recipe limits, see [language servers](/pi-lsp-manager/reference/servers/).
 
+## Trusted installer interpreter (unreleased)
+
+A future Python recipe installs its pinned wheel through a Python interpreter you name explicitly. The global config accepts the optional `pythonInterpreter` key: an absolute path of the trusted Python used only for installing Python recipes. It is global-only, must not contain shell syntax, quotes or `..` segments, and an empty or missing value leaves the install manual. The extension never resolves `python` from `PATH` and never uses a project virtual environment or the `py` launcher. The key does nothing until a Python recipe is admitted; `ty` and `ruff` stay candidates.
+
 ## Canonical source
 
 [Configuration reference](https://github.com/Yivas/pi-lsp-manager/blob/main/docs/configuration.md)

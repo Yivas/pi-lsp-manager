@@ -3,6 +3,7 @@ import { DEFAULT_SERVERS, validateCatalog } from "../../src/catalog/servers.js";
 import {
 	getRecipe,
 	getRecipeRevision,
+	INACTIVE_PYTHON_RECIPES,
 	VUE_RECIPE,
 } from "../../src/install/catalog.js";
 import type { ServerDefinition } from "../../src/contracts.js";
@@ -174,6 +175,25 @@ describe("server catalog", () => {
 		expect(
 			DEFAULT_SERVERS.find((server) => server.id === "jdtls")?.route,
 		).toBeUndefined();
+	});
+
+	it("keeps the Python candidates inactive with a frozen wheel lock outside the registry", () => {
+		for (const id of ["ty", "ruff"] as const) {
+			const server = DEFAULT_SERVERS.find((item) => item.id === id);
+			expect(server, id).toMatchObject({
+				id,
+				admission: "candidate",
+				autoInstall: false,
+				compatibility: [],
+			});
+			expect(getRecipe(id), id).toBeUndefined();
+			expect(getRecipeRevision(id), id).toBeUndefined();
+			expect(INACTIVE_PYTHON_RECIPES[id].entries, id).toHaveLength(3);
+		}
+		expect([
+			...INACTIVE_PYTHON_RECIPES.ty.entries,
+			...INACTIVE_PYTHON_RECIPES.ruff.entries,
+		]).toHaveLength(6);
 	});
 
 	it.each([

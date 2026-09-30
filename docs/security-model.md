@@ -75,3 +75,12 @@ The accepted advisories are `GHSA-q2hr-2g5m-vwhr`, `GHSA-qhr7-859c-m2p7`, and `G
 ## Reporting a vulnerability
 
 Follow [SECURITY.md](../SECURITY.md). Do not include credentials, private source code, or sensitive paths in a public issue.
+
+## Python installer trust perimeter (unreleased)
+
+A future Python recipe installs through the same managed staging, lock, audit and verification path as npm. Its declared perimeter:
+
+- The host Python named by the global `pythonInterpreter` key is trusted. `python -I` neutralizes `PYTHON*` and user-site, but it does not remove a global `sitecustomize` from the interpreter own `site-packages`; that is an accepted limit, not full isolation.
+- Integrity is content-only: the pinned SHA-256 and TLS fix the wheel bytes. pip exposes no redirect bound and no provenance signature, so origin and redirection are not asserted.
+- The installer environment is built from scratch. On Windows the `PATH` holds only `%SystemRoot%\System32`, `%SystemRoot%` and the interpreter directory; elsewhere it holds only the interpreter directory. The standard proxy variables of the trusted host configuration are inherited. No project value reaches it; host `PIP_*`, `PYTHON*` and `NODE_*` values are dropped.
+- A missing or untrusted interpreter means no managed state is written: the extension returns manual instructions. `ty` and `ruff` remain `candidate`, no Python recipe is registered, and `/lsp install ty` still answers with the manual route.

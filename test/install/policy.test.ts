@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createDefaultConfig } from "../../src/config/load.js";
 import {
+	getRecipe,
+	INACTIVE_PYTHON_RECIPES,
+} from "../../src/install/catalog.js";
+import {
 	InstallCoordinator,
 	type PackageManager,
 } from "../../src/install/coordinator.js";
@@ -273,5 +277,136 @@ describe("installation policy", () => {
 			).toBe("blocked");
 		}
 		expect(touched).toBe(0);
+	});
+});
+
+describe("Python installation policy", () => {
+	const recipeLookup = (serverId: string) =>
+		serverId === "ty" ? INACTIVE_PYTHON_RECIPES.ty : getRecipe(serverId);
+
+	it("keeps the inactive candidate at recipe_missing for every origin", () => {
+		for (const origin of ["tool", "post-edit", "explicit"] as const) {
+			const decision = evaluateInstallPolicy(input({ serverId: "ty", origin }));
+			expect(decision, origin).toMatchObject({
+				allowed: false,
+				reason: "recipe_missing",
+			});
+		}
+	});
+
+	it("denies an admitted Python recipe without the global interpreter", () => {
+		// The trust and auto-install gates now precede the interpreter gate, so enable
+		// auto-install for the tool origin to reach the interpreter denial.
+		const config = createDefaultConfig();
+		const ty = config.servers.ty;
+		if (!ty) throw new Error("ty configuration is required.");
+		const enabled = {
+			...config,
+			autoInstall: true,
+			servers: { ...config.servers, ty: { ...ty, autoInstall: true } },
+		};
+		for (const origin of ["tool", "post-edit"] as const) {
+			const decision = evaluateInstallPolicy(
+				input({ serverId: "ty", origin, globalConfig: enabled, recipeLookup }),
+			);
+			expect(decision, origin).toMatchObject({
+				allowed: false,
+				reason: "package_manager_missing",
+			});
+			if (!decision.allowed)
+				expect(decision.manualHelp).toContain("trusted installer interpreter");
+		}
+		// Explicit install skips trust and auto-install and still reports the interpreter.
+		const explicit = evaluateInstallPolicy(
+			input({ serverId: "ty", origin: "explicit", recipeLookup }),
+		);
+		expect(explicit).toMatchObject({
+			allowed: false,
+			reason: "package_manager_missing",
+		});
+		if (!explicit.allowed)
+			expect(explicit.manualHelp).toContain("trusted installer interpreter");
+	});
+
+	it("reports trust and auto-install denials before the missing interpreter", () => {
+		// An untrusted tool with an admitted Python recipe and no interpreter: trust wins,
+		// matching the historical `untrusted_project` message.
+		expect(
+			evaluateInstallPolicy(
+				input({ serverId: "ty", projectTrusted: false, recipeLookup }),
+			),
+		).toMatchObject({ allowed: false, reason: "untrusted_project" });
+		// Auto-install disabled with the same recipe and no interpreter: that denial wins.
+		expect(
+			evaluateInstallPolicy(
+				input({
+					serverId: "ty",
+					globalConfig: disabled("global-auto"),
+					recipeLookup,
+				}),
+			),
+		).toMatchObject({ allowed: false, reason: "auto_install_disabled" });
+		// An explicit install skips both and still reports the missing interpreter.
+		expect(
+			evaluateInstallPolicy(
+				input({
+					serverId: "ty",
+					origin: "explicit",
+					projectTrusted: false,
+					globalConfig: disabled("global-auto"),
+					recipeLookup,
+				}),
+			),
+		).toMatchObject({ allowed: false, reason: "package_manager_missing" });
+	});
+
+	it("rejects an unsupported platform before the interpreter gate", () => {
+		expect(
+			evaluateInstallPolicy(
+				input({
+					serverId: "ty",
+					platform: "freebsd",
+					pythonInterpreter: "/usr/bin/python3",
+					recipeLookup,
+				}),
+			),
+		).toMatchObject({ allowed: false, reason: "unsupported_platform" });
+	});
+
+	it("cuts offline before trust, auto-install and the interpreter gate", () => {
+		expect(
+			evaluateInstallPolicy(
+				input({
+					serverId: "ty",
+					globalConfig: { ...createDefaultConfig(), network: "offline" },
+					pythonInterpreter: "/usr/bin/python3",
+					projectTrusted: false,
+					recipeLookup,
+				}),
+			),
+		).toMatchObject({ allowed: false, reason: "offline" });
+	});
+
+	it("admits an explicit Python install only with the interpreter and the global gates", () => {
+		expect(
+			evaluateInstallPolicy(
+				input({
+					serverId: "ty",
+					origin: "explicit",
+					pythonInterpreter: "/usr/bin/python3",
+					projectTrusted: false,
+					recipeLookup,
+				}),
+			),
+		).toMatchObject({ allowed: true });
+		expect(
+			evaluateInstallPolicy(
+				input({
+					serverId: "ty",
+					pythonInterpreter: "/usr/bin/python3",
+					recipeLookup,
+				}),
+			),
+		).toMatchObject({ allowed: false, reason: "auto_install_disabled" });
 	});
 });

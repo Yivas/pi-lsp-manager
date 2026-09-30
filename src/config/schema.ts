@@ -5,7 +5,7 @@ import type {
 	ProjectServerConfig,
 	ServerRole,
 } from "../contracts.js";
-import { SERVER_ROLES } from "../contracts.js";
+import { isSafeAbsolutePath, SERVER_ROLES } from "../contracts.js";
 
 export const MAX_CONFIG_TEXT_LENGTH = 256 * 1024;
 export const MAX_STRING_LENGTH = 4_096;
@@ -258,6 +258,7 @@ export function parseConfigText(
 		!isRecord(value) ||
 		!hasOnlyKeys(value, [
 			"version",
+			"pythonInterpreter",
 			"network",
 			"autoInstall",
 			"postEditDiagnostics",
@@ -272,6 +273,10 @@ export function parseConfigText(
 	}
 	if (layer === "global") {
 		if (
+			(value.pythonInterpreter !== undefined &&
+				value.pythonInterpreter !== "" &&
+				(typeof value.pythonInterpreter !== "string" ||
+					!isSafeAbsolutePath(value.pythonInterpreter))) ||
 			(value.network !== undefined &&
 				value.network !== "auto" &&
 				value.network !== "offline") ||
@@ -291,6 +296,7 @@ export function parseConfigText(
 		return { ok: true, value: { ...value, servers } as GlobalConfig };
 	}
 	if (
+		value.pythonInterpreter !== undefined ||
 		(value.network !== undefined && value.network !== "offline") ||
 		(value.autoInstall !== undefined && value.autoInstall !== false) ||
 		(value.postEditDiagnostics !== undefined &&

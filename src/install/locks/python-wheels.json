@@ -1,0 +1,45 @@
+{
+	"revision": "pip-target_lock-1",
+	"servers": {
+		"ty": [
+			{
+				"platform": "win32",
+				"architecture": "x64",
+				"url": "https://files.pythonhosted.org/packages/29/ec/994d87252f065dda5a500bc8afc726d18f6582d81d6f4ff1feb8a267c800/ty-0.0.84-py3-none-win_amd64.whl",
+				"sha256": "71cc9aa7a7c89d4e12c6a814e9c0c3310ad5bee44efedbd6f5a42d91e9ac0f0d"
+			},
+			{
+				"platform": "darwin",
+				"architecture": "arm64",
+				"url": "https://files.pythonhosted.org/packages/fc/b6/b12dd130e7f30141f0645614f454c925991cd389b1cc6c8284fd6bf32326/ty-0.0.84-py3-none-macosx_11_0_arm64.whl",
+				"sha256": "8f78c2915567f2ee62ce0c24d86091bc76f81577677755e242d09951db588b9a"
+			},
+			{
+				"platform": "linux",
+				"architecture": "x64",
+				"url": "https://files.pythonhosted.org/packages/60/d5/32cd67aedb271f006e716ad093806c96c5d7e2af86be8255469dbd3d76c8/ty-0.0.84-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+				"sha256": "af17eb391ae3027fed9be1780bea555c2b8a25ba68e184c627b4981b2c9eaab7"
+			}
+		],
+		"ruff": [
+			{
+				"platform": "win32",
+				"architecture": "x64",
+				"url": "https://files.pythonhosted.org/packages/14/21/26e4643629b3ebb44f0a06f9c9a53058d63d989415f63a9a3c28e2ee7f22/ruff-0.16.9-py3-none-win_amd64.whl",
+				"sha256": "6bd40fec8cd4c8a3d4dd589bd8ad4e6320c13c29234159bfd959a40d529d597b"
+			},
+			{
+				"platform": "darwin",
+				"architecture": "arm64",
+				"url": "https://files.pythonhosted.org/packages/b6/63/09659283f92f02dff45809da194a70da2f688d87c55d8875c4fae3536072/ruff-0.16.9-py3-none-macosx_11_0_arm64.whl",
+				"sha256": "1632eb1d6197f33bd00b1acbc5b71009e89a8895c158e2d2b03a834fac964ab6"
+			},
+			{
+				"platform": "linux",
+				"architecture": "x64",
+				"url": "https://files.pythonhosted.org/packages/bc/b8/9c543074918061abbefc3bd139bee22de35abedb00dde0f2d27288838962/ruff-0.16.9-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl",
+				"sha256": "a21713e629d3e5bdb2f5c2def1cc7f04f47fa8e1a7eb0571b4a28e1da64bc728"
+			}
+		]
+	}
+}

@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { delimiter, join, posix, win32 } from "node:path";
-import type { InstallRecipe } from "./catalog.js";
+import type { InstallRecipe, NpmInstallRecipe } from "./catalog.js";
 
-const PROXY_KEYS = [
+export const PROXY_KEYS = [
 	"HTTP_PROXY",
 	"HTTPS_PROXY",
 	"NO_PROXY",
@@ -11,6 +11,15 @@ const PROXY_KEYS = [
 	"no_proxy",
 ] as const;
 const CONTROLLED_NPMRC = "audit=false\nfund=false\nignore-scripts=true\n";
+
+/**
+ * The npm helpers keep accepting the recipe union so the frozen npm call sites do not
+ * change type, but they only ever run for the npm variant the adapter dispatches.
+ */
+function npmRecipe(recipe: InstallRecipe): NpmInstallRecipe {
+	if (recipe.kind !== "npm") throw new Error("Npm recipe required.");
+	return recipe;
+}
 
 export interface ControlledNpmFiles {
 	packageJson: string;
@@ -38,7 +47,7 @@ function findEnvironmentValue(
 }
 
 function packageTarballUrl(
-	recipe: InstallRecipe,
+	recipe: NpmInstallRecipe,
 	name: string,
 	version: string,
 ): string {
@@ -48,7 +57,7 @@ function packageTarballUrl(
 }
 
 function lockedNpmPackages(
-	recipe: InstallRecipe,
+	recipe: NpmInstallRecipe,
 	dependencies: Record<string, string>,
 ): Readonly<Record<string, unknown>> {
 	const lock = recipe.lockfile;
@@ -137,21 +146,22 @@ function lockedNpmPackages(
 export function createControlledNpmFiles(
 	recipe: InstallRecipe,
 ): ControlledNpmFiles {
+	const npm = npmRecipe(recipe);
 	const dependencies = Object.fromEntries(
-		recipe.packages.map((pin) => [pin.name, pin.version]),
+		npm.packages.map((pin) => [pin.name, pin.version]),
 	);
 	const packages: Record<string, unknown> = {
 		"": {
-			name: `pi-lsp-manager-${recipe.serverId}`,
+			name: `pi-lsp-manager-${npm.serverId}`,
 			version: "0.0.0",
 			private: true,
 			dependencies,
 		},
 	};
-	for (const pin of recipe.packages) {
+	for (const pin of npm.packages) {
 		packages[`node_modules/${pin.name}`] = {
 			version: pin.version,
-			resolved: packageTarballUrl(recipe, pin.name, pin.version),
+			resolved: packageTarballUrl(npm, pin.name, pin.version),
 			integrity: pin.integrity,
 			license: pin.license,
 			engines: { node: pin.node },
@@ -163,21 +173,21 @@ export function createControlledNpmFiles(
 						: undefined,
 		};
 	}
-	const locked = recipe.lockfile
-		? lockedNpmPackages(recipe, dependencies)
+	const locked = npm.lockfile
+		? lockedNpmPackages(npm, dependencies)
 		: undefined;
 	return {
 		packageJson: `${JSON.stringify({
-			name: `pi-lsp-manager-${recipe.serverId}`,
+			name: `pi-lsp-manager-${npm.serverId}`,
 			version: "0.0.0",
 			private: true,
 			dependencies,
 		})}\n`,
 		packageLock: `${JSON.stringify(
-			recipe.lockfile
-				? { ...recipe.lockfile, packages: locked }
+			npm.lockfile
+				? { ...npm.lockfile, packages: locked }
 				: {
-						name: `pi-lsp-manager-${recipe.serverId}`,
+						name: `pi-lsp-manager-${npm.serverId}`,
 						version: "0.0.0",
 						lockfileVersion: 3,
 						requires: true,
@@ -193,7 +203,7 @@ export function validateControlledNpmFiles(
 	recipe: InstallRecipe,
 	files: ControlledNpmFiles,
 ): boolean {
-	const expected = createControlledNpmFiles(recipe);
+	const expected = createControlledNpmFiles(npmRecipe(recipe));
 	return (
 		files.packageJson === expected.packageJson &&
 		files.packageLock === expected.packageLock &&
@@ -289,6 +299,7 @@ export function createPackageManagerLaunch(
 	environment: NodeJS.ProcessEnv,
 	platform: NodeJS.Platform,
 ): PackageManagerLaunch {
+	const npm = npmRecipe(recipe);
 	return {
 		command: resolvedNpmCommand,
 		args: [
@@ -298,7 +309,7 @@ export function createPackageManagerLaunch(
 			"--no-fund",
 			"--foreground-scripts=false",
 			"--registry",
-			recipe.registry,
+			npm.registry,
 			"--userconfig",
 			join(stagingPath, "npmrc"),
 			"--globalconfig",

@@ -32,7 +32,8 @@ afterEach(async () => {
 });
 
 const recipe = getRecipe("typescript");
-if (!recipe) throw new Error("TypeScript recipe is required.");
+if (!recipe || recipe.kind !== "npm")
+	throw new Error("TypeScript recipe is required.");
 
 describe("controlled npm inputs", () => {
 	it("generates a complete immutable direct-dependency lock with exact registry tarballs and SRI", () => {

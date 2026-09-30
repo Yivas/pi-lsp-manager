@@ -1,4 +1,5 @@
 import type { ServerAdmission } from "../contracts.js";
+import pythonWheelLock from "./locks/python-wheels.json" with { type: "json" };
 import vueLockfile from "./locks/vue-3.3.11.json" with { type: "json" };
 
 export interface PackagePin {
@@ -14,7 +15,8 @@ export interface InstallTarget {
 	architecture: NodeJS.Architecture;
 }
 
-export interface InstallRecipe {
+export interface NpmInstallRecipe {
+	kind: "npm";
 	serverId: string;
 	revision: string;
 	targets: readonly InstallTarget[];
@@ -33,6 +35,32 @@ export interface InstallRecipe {
 	manualHelp: string;
 }
 
+/** One wheel of the frozen Python lock. pip receives exactly one of these per installation. */
+export interface PythonWheelEntry {
+	platform: NodeJS.Platform;
+	architecture: NodeJS.Architecture;
+	url: string;
+	sha256: string;
+}
+
+/**
+ * A Python recipe installs one wheel with a direct URL and its own hash into the managed
+ * staging directory. It is inactive until the activation gate admits it.
+ */
+export interface PythonInstallRecipe {
+	kind: "python";
+	serverId: string;
+	revision: string;
+	targets: readonly InstallTarget[];
+	entries: readonly PythonWheelEntry[];
+	executable: string;
+	expectedVersion: string;
+	admission: Extract<ServerAdmission, "auto-installable">;
+	manualHelp: string;
+}
+
+export type InstallRecipe = NpmInstallRecipe | PythonInstallRecipe;
+
 function deepFreeze<T>(value: T): T {
 	if (value && typeof value === "object" && !Object.isFrozen(value)) {
 		Object.freeze(value);
@@ -43,7 +71,8 @@ function deepFreeze<T>(value: T): T {
 	return value;
 }
 
-const TYPESCRIPT_RECIPE = deepFreeze<InstallRecipe>({
+const TYPESCRIPT_RECIPE = deepFreeze<NpmInstallRecipe>({
+	kind: "npm",
 	serverId: "typescript",
 	revision: "typescript-language-server-5.3.0_typescript-5.9.3",
 	targets: [
@@ -77,7 +106,8 @@ const TYPESCRIPT_RECIPE = deepFreeze<InstallRecipe>({
 		"Install typescript-language-server 5.3.0 and typescript 5.9.3, then retry.",
 });
 
-export const VUE_RECIPE = deepFreeze<InstallRecipe>({
+export const VUE_RECIPE = deepFreeze<NpmInstallRecipe>({
+	kind: "npm",
 	serverId: "vue",
 	revision:
 		"vue-language-server-3.3.11_ts-plugin-3.3.11_typescript-5.9.3_vue-3.5.43_lock-1",
@@ -129,7 +159,145 @@ export const VUE_RECIPE = deepFreeze<InstallRecipe>({
 		"Install Vue Language Server 3.3.11, its TypeScript plugin 3.3.11, TypeScript 5.9.3 and Vue 3.5.43 together, then retry.",
 });
 
-const RECIPES = deepFreeze<Record<string, InstallRecipe>>({
+const PLATFORMS: readonly NodeJS.Platform[] = [
+	"aix",
+	"darwin",
+	"freebsd",
+	"linux",
+	"openbsd",
+	"sunos",
+	"win32",
+];
+const ARCHITECTURES: readonly NodeJS.Architecture[] = [
+	"arm",
+	"arm64",
+	"ia32",
+	"loong64",
+	"mips",
+	"mipsel",
+	"ppc64",
+	"riscv64",
+	"s390x",
+	"x64",
+];
+
+function isPlatform(value: string): value is NodeJS.Platform {
+	return PLATFORMS.includes(value as NodeJS.Platform);
+}
+
+function isArchitecture(value: string): value is NodeJS.Architecture {
+	return ARCHITECTURES.includes(value as NodeJS.Architecture);
+}
+
+/**
+ * Reads the frozen Python lock. The URL must be the canonical `files.pythonhosted.org`
+ * wheel and the hash a full SHA-256, so a lock edit cannot smuggle another host or a
+ * truncated digest into the requirements file.
+ */
+function projectPythonEntries(
+	serverId: keyof typeof pythonWheelLock.servers,
+): readonly PythonWheelEntry[] {
+	return pythonWheelLock.servers[serverId].map((entry) => {
+		// Validate the raw string that is later emitted, not the parsed path: the WHATWG
+		// parser resolves percent-encoded dot segments out of `pathname`, so a `%` guard on
+		// it would miss `%2e%2e`/`%2e`/`%2E%2E`. The frozen official URLs are canonical and
+		// contain no `%`, backslash or NUL, so rejecting them cannot refuse a real wheel.
+		if (
+			entry.url.includes("%") ||
+			entry.url.includes("\\") ||
+			entry.url.includes("\0")
+		) {
+			throw new Error("Python wheel lock contains an unpinned wheel.");
+		}
+		let url: URL;
+		try {
+			url = new URL(entry.url);
+		} catch {
+			throw new Error("Python wheel lock contains an invalid URL.");
+		}
+		const path = url.pathname;
+		if (
+			url.protocol !== "https:" ||
+			url.hostname !== "files.pythonhosted.org" ||
+			url.username ||
+			url.password ||
+			url.search ||
+			url.hash ||
+			path.includes("//") ||
+			!path.endsWith(".whl") ||
+			!isPlatform(entry.platform) ||
+			!isArchitecture(entry.architecture) ||
+			!/^[0-9a-f]{64}$/.test(entry.sha256)
+		) {
+			throw new Error("Python wheel lock contains an unpinned wheel.");
+		}
+		return {
+			platform: entry.platform,
+			architecture: entry.architecture,
+			url: entry.url,
+			sha256: entry.sha256,
+		};
+	});
+}
+
+function pythonRecipe(
+	serverId: "ty" | "ruff",
+	executable: string,
+	expectedVersion: string,
+	manualHelp: string,
+): PythonInstallRecipe {
+	const entries = projectPythonEntries(serverId);
+	return {
+		kind: "python",
+		serverId,
+		revision: `${serverId}-${expectedVersion}_${pythonWheelLock.revision}`,
+		targets: entries.map(({ platform, architecture }) => ({
+			platform,
+			architecture,
+		})),
+		entries,
+		executable,
+		expectedVersion,
+		admission: "auto-installable",
+		manualHelp,
+	};
+}
+
+/**
+ * Python recipes stay out of `RECIPES` until the activation gate admits them. They are
+ * exported so the deterministic suite can exercise the adapter with an injected decision,
+ * while the real policy keeps answering `recipe_missing` for `ty` and `ruff`.
+ */
+export const INACTIVE_PYTHON_RECIPES = deepFreeze<
+	Record<"ty" | "ruff", PythonInstallRecipe>
+>({
+	ty: pythonRecipe(
+		"ty",
+		"ty",
+		"0.0.84",
+		"Install ty 0.0.84 manually, set the trusted installer interpreter, then retry.",
+	),
+	ruff: pythonRecipe(
+		"ruff",
+		"ruff",
+		"0.16.9",
+		"Install ruff 0.16.9 manually, set the trusted installer interpreter, then retry.",
+	),
+});
+
+/** Selects the single wheel pip receives for a host platform and architecture. */
+export function selectPythonEntry(
+	recipe: PythonInstallRecipe,
+	platform: NodeJS.Platform,
+	architecture: NodeJS.Architecture,
+): PythonWheelEntry | undefined {
+	return recipe.entries.find(
+		(entry) =>
+			entry.platform === platform && entry.architecture === architecture,
+	);
+}
+
+const RECIPES = deepFreeze<Record<string, NpmInstallRecipe>>({
 	typescript: TYPESCRIPT_RECIPE,
 	vue: VUE_RECIPE,
 });
