@@ -25,7 +25,7 @@ The `main` branch registers an `auto-installable` `vue` route with these tested 
 | macOS 14 runner | arm64 | 22.19.0 | 0.87.1 development host |
 | Ubuntu 24.04 runner | x64 | 22.19.0 | 0.87.1 development host |
 
-The route uses Vue Language Server `3.3.11`, `@vue/typescript-plugin` `3.3.11`, and TypeScript `5.9.3`. The [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/36741798866) exercised diagnostics, definition, references, document symbols, prepare rename, rename, and shutdown on those rows. No CSS diagnostics are claimed.
+The route uses Vue Language Server `3.3.11`, `@vue/typescript-plugin` `3.3.11`, and TypeScript `5.9.3`. The [CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/36757617120) exercised diagnostics, definition, references, document symbols, prepare rename, rename, and shutdown on those rows. No CSS diagnostics are claimed.
 
 Use `lsp_status` to inspect admission and availability separately, then follow [manual-route review](/pi-lsp-manager/guides/manual-routes/) for any route without an internal recipe.
 
