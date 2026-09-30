@@ -255,7 +255,7 @@ describe("Python installation verifier", () => {
 		await writeFile(executable, "#!/bin/sh\n", "utf8");
 		await chmod(executable, 0o700);
 		expect(await verifier(root, recipe, new AbortController().signal)).toEqual({
-			path: executable,
+			path: await realpath(executable),
 			version: "0.0.84",
 		});
 		expect((calls[0]?.[2] as { cwd: string }).cwd).toBe(root);
