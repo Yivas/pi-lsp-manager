@@ -81,6 +81,39 @@ describe("JSON-RPC LSP session", () => {
 		client.close();
 		fake.dispose();
 	});
+	it("delivers a window/logMessage registered before initialize", async () => {
+		// @tailwindcss/language-server 0.16.0 can log during the initialize
+		// handshake, so the real fixture subscribes before initialization. This
+		// pins that ordering: a handler registered on the connection before
+		// initialize is called still receives a notification the server sends
+		// before it answers initialize.
+		const { client, server: fake } = channels();
+		const observed: string[] = [];
+		client.onNotification("window/logMessage", (params) => {
+			observed.push(
+				(params as { message?: string } | undefined)?.message ?? "",
+			);
+		});
+		fake.onRequest("initialize", async () => {
+			await fake.sendNotification("window/logMessage", {
+				type: 3,
+				message: "engine loaded",
+			});
+			return { capabilities: {} };
+		});
+		const session = new LspSession(client, {
+			rootPath: process.cwd(),
+			server,
+		});
+		const initialized = session.initialize().then((value) => {
+			observed.push("initialized");
+			return value;
+		});
+		expect(await initialized).toBe(true);
+		expect(observed).toEqual(["engine loaded", "initialized"]);
+		client.close();
+		fake.dispose();
+	});
 	it("acknowledges an empty capability unregistration", async () => {
 		const { client, server: fake } = channels();
 		new LspSession(client, { rootPath: process.cwd(), server });

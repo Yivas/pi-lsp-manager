@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SERVERS, validateCatalog } from "../../src/catalog/servers.js";
-import { getRecipe } from "../../src/install/catalog.js";
+import {
+	getRecipe,
+	getRecipeRevision,
+	VUE_RECIPE,
+} from "../../src/install/catalog.js";
 import type { ServerDefinition } from "../../src/contracts.js";
 
 const compatibility = {
@@ -51,6 +55,25 @@ describe("server catalog", () => {
 		expect(server?.manualHelp).toContain("vue-language-server.js");
 		expect(server?.manualHelp).toContain("--stdio");
 		expect(getRecipe("vue")).toBeUndefined();
+	});
+
+	it("keeps every web candidate unregistered while the Vue recipe is inactive", () => {
+		// This guard must change in the same commit that registers the recipe.
+		expect(VUE_RECIPE).toMatchObject({
+			serverId: "vue",
+			admission: "auto-installable",
+		});
+		for (const id of ["vue", "tailwindcss", "eslint"] as const) {
+			const server = DEFAULT_SERVERS.find((item) => item.id === id);
+			expect(server, id).toMatchObject({
+				id,
+				admission: "candidate",
+				autoInstall: false,
+				compatibility: [],
+			});
+			expect(getRecipe(id), id).toBeUndefined();
+			expect(getRecipeRevision(id), id).toBeUndefined();
+		}
 	});
 
 	it("pins TypeScript compatibility claims and diagnostic timing", () => {

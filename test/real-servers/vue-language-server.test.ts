@@ -22,8 +22,14 @@ import { TrustedOperationService } from "../../src/tools/shared.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const runReal = process.env.RUN_REAL_VUE === "1";
+const externalCli = process.env.VUE_CLI;
+// The CI gate sets VUE_CLI_REQUIRED so a missing handoff fails closed: the
+// repository's locked development dependencies would otherwise satisfy the
+// fixture and hide a broken gate installation. Local runs keep the fallback.
+if (runReal && process.env.VUE_CLI_REQUIRED === "1" && !externalCli)
+	throw new Error("VUE_CLI is required when VUE_CLI_REQUIRED=1.");
 const cli =
-	process.env.VUE_CLI ??
+	externalCli ??
 	resolve("node_modules/@vue/language-server/bin/vue-language-server.js");
 const config: EffectiveConfig = {
 	version: 1,
@@ -65,10 +71,25 @@ describe.runIf(runReal)("Vue Language Server 3.3.11", () => {
 	let workspace: string | undefined;
 	let pool: RuntimePool | undefined;
 	afterEach(async () => {
-		await pool?.shutdown();
-		if (workspace) await rm(workspace, { recursive: true, force: true });
-		pool = undefined;
-		workspace = undefined;
+		try {
+			try {
+				await pool?.shutdown();
+			} finally {
+				if (workspace)
+					// Delete the fixture's own temporary directory even when shutdown
+					// fails, with a bounded retry for the transient Windows ENOTEMPTY of
+					// a linked Vue package. A persistent failure still surfaces.
+					await rm(workspace, {
+						recursive: true,
+						force: true,
+						maxRetries: 10,
+						retryDelay: 50,
+					});
+			}
+		} finally {
+			pool = undefined;
+			workspace = undefined;
+		}
 	});
 
 	it("reports invalid SFC diagnostics without installing a server", async () => {
