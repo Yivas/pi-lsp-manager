@@ -14,7 +14,7 @@ Catalog metadata does not download, probe, or establish compatibility. A route r
 | `tested` | The listed fixture, versions, and platforms passed project tests. |
 | `auto-installable` | A tested entry with a fixed internal recipe that passed installation controls. |
 
-The built-in catalog has one `auto-installable` entry and 31 candidates. `lsp_status` separately reports availability, route configuration, recipe presence, installability, and admission.
+The built-in catalog has two `auto-installable` entries (`typescript` and `vue`) and 30 candidates. `lsp_status` separately reports availability, route configuration, recipe presence, installability, and admission.
 
 ## Built-in TypeScript route
 
@@ -28,7 +28,22 @@ The built-in catalog has one `auto-installable` entry and 31 candidates. `lsp_st
 | Roles | diagnostics, semantic, mutation |
 | Priority | `100` |
 
-It is the only built-in route with an installation recipe. The recipe uses the npm registry, exact lock metadata and SHA-512 integrities, `npm ci`, disabled lifecycle scripts, isolated directories, and executable/version verification before promotion.
+Both auto-installable routes use an internal recipe with the npm registry, exact lock metadata and SHA-512 integrities, `npm ci`, disabled lifecycle scripts, isolated directories, and executable/version verification before promotion.
+
+## Built-in Vue route
+
+| Field | Value |
+| --- | --- |
+| ID | `vue` |
+| Server | Vue Language Server `3.3.11` |
+| Plugin | `@vue/typescript-plugin` `3.3.11` |
+| TypeScript | `5.9.3` |
+| Command | `vue-language-server --stdio` |
+| Extensions | `.vue` |
+| Roles | diagnostics, semantic, mutation |
+| Priority | `100` |
+
+The `vue` recipe installs the pinned server, plugin, TypeScript, and Vue closure. A manual route instead needs the server, plugin, and TypeScript co-located in one npm root. Its paired TypeScript process supplies script diagnostics and semantic results; no CSS diagnostics are claimed.
 
 ## Candidate routes
 

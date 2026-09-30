@@ -129,9 +129,9 @@ export const VUE_RECIPE = deepFreeze<InstallRecipe>({
 		"Install Vue Language Server 3.3.11, its TypeScript plugin 3.3.11, TypeScript 5.9.3 and Vue 3.5.43 together, then retry.",
 });
 
-// Vue remains inactive until the real installation and cross-platform gates pass.
 const RECIPES = deepFreeze<Record<string, InstallRecipe>>({
 	typescript: TYPESCRIPT_RECIPE,
+	vue: VUE_RECIPE,
 });
 
 export function getRecipe(serverId: string): InstallRecipe | undefined {

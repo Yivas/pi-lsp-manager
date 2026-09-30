@@ -37,9 +37,9 @@ RUN_REAL_VUE=1 npm test -- test/real-servers/vue-language-server.test.ts
 RUN_REAL_TAILWIND=1 TAILWIND_CLI=<absolute-server-path> npm test -- test/real-servers/tailwindcss.test.ts
 ```
 
-For the Vue fixture, `VUE_CLI` may point to the absolute `vue-language-server.js` path in a separate locked npm installation. That npm root must place `vue@3.5.43` beside `@vue/language-server@3.3.11`, the TypeScript plugin 3.3.11 and TypeScript 5.9.3; without `VUE_CLI`, the fixture uses this repository's locked development dependencies. The Vue pin belongs to the fixture, not to the manual-server requirement: an analyzed project supplies its own Vue dependencies. CI sets `VUE_CLI_REQUIRED=1`, which turns a missing `VUE_CLI` into a failure instead of the fallback, so a broken handoff cannot pass on the checkout's dependencies; local runs keep the fallback.
+For the Vue fixture, `VUE_CLI` may point to the absolute `vue-language-server.js` path in a separate locked npm installation. That npm root must place `vue@3.5.43` beside `@vue/language-server@3.3.11`, the TypeScript plugin 3.3.11 and TypeScript 5.9.3; without `VUE_CLI`, the fixture uses this repository's locked development dependencies. The `vue@3.5.43` pin belongs to the fixture and the internal recipe, not to the manual-server requirement: an analyzed project supplies its own Vue dependencies. CI sets `VUE_CLI_REQUIRED=1`, which turns a missing `VUE_CLI` into a failure instead of the fallback, so a broken handoff cannot pass on the checkout's dependencies; local runs keep the fallback.
 
-The Vue installation gate runs the real coordinator against the frozen recipe without registering it, then hands the committed CLI to the Vue fixture so only one npm installation is paid:
+The Vue installation gate runs the real coordinator against the admitted recipe — the decision comes from the real admission policy — then hands the committed CLI to the Vue fixture so only one npm installation is paid:
 
 ```bash
 gate_root=$(mktemp -d "${TMPDIR:-/tmp}/vue-install-gate.XXXXXX")

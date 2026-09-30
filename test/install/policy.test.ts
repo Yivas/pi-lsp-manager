@@ -96,6 +96,102 @@ describe("installation policy", () => {
 		},
 	);
 
+	it("gates the admitted Vue recipe with the same denials as the built-in one", () => {
+		const config = createDefaultConfig();
+		const vue = config.servers.vue;
+		if (!vue) throw new Error("Vue configuration is required.");
+		const denials: readonly [string, InstallPolicyInput, string][] = [
+			[
+				"untrusted tool",
+				input({ serverId: "vue", projectTrusted: false }),
+				"untrusted_project",
+			],
+			[
+				"offline",
+				input({
+					serverId: "vue",
+					globalConfig: { ...config, network: "offline" },
+				}),
+				"offline",
+			],
+			[
+				"disabled server",
+				input({
+					serverId: "vue",
+					globalConfig: {
+						...config,
+						servers: { vue: { ...vue, enabled: false } },
+					},
+				}),
+				"server_disabled",
+			],
+			[
+				"global auto-install",
+				input({
+					serverId: "vue",
+					globalConfig: { ...config, autoInstall: false },
+				}),
+				"auto_install_disabled",
+			],
+			[
+				"server auto-install",
+				input({
+					serverId: "vue",
+					globalConfig: {
+						...config,
+						servers: { vue: { ...vue, autoInstall: false } },
+					},
+				}),
+				"auto_install_disabled",
+			],
+			[
+				"unsupported platform",
+				input({ serverId: "vue", platform: "freebsd" }),
+				"unsupported_platform",
+			],
+		];
+		for (const [name, policyInput, reason] of denials)
+			expect(evaluateInstallPolicy(policyInput), name).toMatchObject({
+				allowed: false,
+				reason,
+			});
+		// Explicit `/lsp install vue` keeps ignoring trust and auto-install while it
+		// still honors the global enabled and network gates.
+		expect(
+			evaluateInstallPolicy(
+				input({
+					serverId: "vue",
+					origin: "explicit",
+					projectTrusted: false,
+					globalConfig: { ...config, autoInstall: false },
+				}),
+			),
+		).toMatchObject({ allowed: true });
+		expect(
+			evaluateInstallPolicy(
+				input({
+					serverId: "vue",
+					origin: "explicit",
+					projectTrusted: false,
+					globalConfig: { ...config, network: "offline" },
+				}),
+			),
+		).toMatchObject({ allowed: false, reason: "offline" });
+		expect(
+			evaluateInstallPolicy(
+				input({
+					serverId: "vue",
+					origin: "explicit",
+					projectTrusted: false,
+					globalConfig: {
+						...config,
+						servers: { vue: { ...vue, enabled: false } },
+					},
+				}),
+			),
+		).toMatchObject({ allowed: false, reason: "server_disabled" });
+	});
+
 	it("explicit install ignores only trust and auto-install, never global enabled/offline gates", () => {
 		expect(
 			evaluateInstallPolicy(

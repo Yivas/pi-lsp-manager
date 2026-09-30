@@ -20,7 +20,7 @@ Run:
 /lsp policy
 ```
 
-The TypeScript route is the only automatic-install route. Global policy must leave it enabled, allow automatic installation, and permit `network: "auto"`; the current platform must also match a verified row. The extension does not install candidate routes or manual routes.
+The `typescript` route is the only published automatic-install route; the `main` branch adds an unreleased `vue` route. Global policy must leave the selected route enabled, allow automatic installation, and permit `network: "auto"`; the current platform must also match a verified row. The extension does not install candidate routes or manual routes.
 
 If the result is `untrusted_project`, trust the project in Pi. If it is `server_unavailable`, check [troubleshooting](/pi-lsp-manager/operations/troubleshooting/) before changing configuration.
 

@@ -33,9 +33,10 @@ import type {
 	InstalledExecutable,
 } from "../../src/install/verify.js";
 
-// The frozen Vue recipe is injected through the request decision because RECIPES
-// does not expose it. That keeps the real policy denial in place while the whole
-// staging, lock, install, verification, rollback, and cancellation path runs.
+// The frozen Vue recipe is injected through the request decision so the whole
+// staging, lock, install, verification, rollback, and cancellation path runs
+// deterministically. The real registry and admission policy are asserted
+// separately in the first test instead of being bypassed by the injected decision.
 
 const temporaryDirectories: string[] = [];
 
@@ -235,8 +236,8 @@ async function expectNoOwnedArtifacts(managed: string): Promise<void> {
 	expect(await readdir(serverRoot(managed))).toEqual([]);
 }
 
-describe("Vue recipe gate without admission", () => {
-	it("keeps the real Vue policy denied while the recipe stays out of the registry", () => {
+describe("Vue recipe gate with admission", () => {
+	it("admits the real Vue policy and exposes the recipe in the registry", () => {
 		const decision = evaluateInstallPolicy({
 			origin: "tool",
 			serverId: "vue",
@@ -245,18 +246,11 @@ describe("Vue recipe gate without admission", () => {
 			platform: "linux",
 			architecture: "x64",
 		});
-		expect(decision).toMatchObject({
-			allowed: false,
-			reason: "recipe_missing",
-		});
-		expect(getRecipe("vue")).toBeUndefined();
-		expect(getRecipeRevision("vue")).toBeUndefined();
-		// The frozen recipe exists and claims auto-installable; the guard is that
-		// RECIPES still does not expose it.
-		expect(VUE_RECIPE).toMatchObject({
-			serverId: "vue",
-			admission: "auto-installable",
-		});
+		expect(decision.allowed).toBe(true);
+		if (!decision.allowed) throw new Error("The Vue policy must be admitted.");
+		expect(decision.recipe).toBe(VUE_RECIPE);
+		expect(getRecipe("vue")).toBe(VUE_RECIPE);
+		expect(getRecipeRevision("vue")).toBe(VUE_RECIPE.revision);
 	});
 
 	it("cancels a Vue installation during package-manager start without owned state", async () => {

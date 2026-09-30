@@ -31,7 +31,7 @@ A new route requires `command`, `args`, `extensions`, `roles`, and `languageIds`
 
 ## Limits
 
-Manual routes never receive an internal recipe and cannot be installed by `/lsp install`. Restart or reload Pi after changing global executable settings, then inspect the sanitized effective route with `/lsp status`.
+The built-in `typescript` and `vue` routes have internal recipes; use `/lsp install <id>` for them. Every other catalog ID needs a reviewed manual route. Manual routes never receive an internal recipe and cannot be installed by `/lsp install`. Restart or reload Pi after changing global executable settings, then inspect the sanitized effective route with `/lsp status`.
 
 See the full [configuration reference](/pi-lsp-manager/reference/configuration/) and [server catalog](/pi-lsp-manager/reference/servers/).
 

@@ -32,11 +32,11 @@ Trust the project through Pi only after reviewing it. The extension will not rea
 4. its language IDs and optional `languageIdByExtension` mapping match the file;
 5. `lsp_status` reports a configured and available route.
 
-The built-in TypeScript route is the only auto-installable entry. The other catalog IDs are candidates for manual configuration, not compatibility claims. For the Vue candidate, install `@vue/language-server@3.3.11`, `@vue/typescript-plugin@3.3.11`, and `typescript@5.9.3` together under one npm installation root. Set a global route to an absolute Node executable and pass the absolute `<npm-root>/node_modules/@vue/language-server/bin/vue-language-server.js` path followed by `--stdio`. A global npm launcher on `PATH` alone cannot locate the plugin root. The route fails with `server_unavailable` when the plugin or TypeScript SDK is missing or has a different version; it does not install them automatically.
+The built-in `typescript` and `vue` routes are the auto-installable entries. The other catalog IDs are candidates for manual configuration, not compatibility claims. For the Vue route, `/lsp install vue` or an authorized tool request installs the pinned `@vue/language-server@3.3.11`, `@vue/typescript-plugin@3.3.11`, `typescript@5.9.3` and `vue@3.5.43` closure from its internal recipe. A manual route instead needs `@vue/language-server@3.3.11`, `@vue/typescript-plugin@3.3.11`, and `typescript@5.9.3` together under one npm installation root: set a global route to an absolute Node executable and pass the absolute `<npm-root>/node_modules/@vue/language-server/bin/vue-language-server.js` path followed by `--stdio`. A global npm launcher on `PATH` alone cannot locate the plugin root. The route fails with `server_unavailable` when the plugin or TypeScript SDK is missing or has a different version.
 
 ## Automatic installation is disabled or offline
 
-The result is `server_unavailable` with manual recovery text when `autoInstall` is disabled, the effective network policy is `offline`, the server has no recipe, or the platform is outside the recipe's verified rows. Run `/lsp install typescript` only for the built-in TypeScript recipe when global policy permits it, or install a manual-route server yourself and configure its complete global route. A project file cannot supply executable settings.
+The result is `server_unavailable` with manual recovery text when `autoInstall` is disabled, the effective network policy is `offline`, the server has no recipe, or the platform is outside the recipe's verified rows. Run `/lsp install typescript` or `/lsp install vue` only for the built-in recipes when global policy permits it, or install a manual-route server yourself and configure its complete global route. A project file cannot supply executable settings.
 
 ## Installation fails
 
@@ -73,7 +73,7 @@ Shutdown is finite but not instantaneous, and it has no single deadline: each cl
 
 ## Diagnostics time out
 
-`diagnostics_timed_out` means the client did not receive the initial asynchronous publication within the configured `pushGraceMs` (5 seconds by default; 15 seconds for the Vue candidate while its plugin analyzes the initial document). A clean Vue file with an empty publication can still take the full 15 seconds, and a cold project may time out once before a retry succeeds. If navigation works but diagnostics keep timing out:
+`diagnostics_timed_out` means the client did not receive the initial asynchronous publication within the configured `pushGraceMs` (5 seconds by default; 15 seconds for the Vue route while its plugin analyzes the initial document). A clean Vue file with an empty publication can still take the full 15 seconds, and a cold project may time out once before a retry succeeds. If navigation works but diagnostics keep timing out:
 
 1. confirm the file belongs to a valid project for that server;
 2. inspect server state with `lsp_status`;

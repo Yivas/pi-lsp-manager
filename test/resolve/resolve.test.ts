@@ -488,7 +488,7 @@ describe("server selection", () => {
 			"eslint",
 			"tailwindcss",
 		]);
-		expect(diagnostic.installCandidate).toBeUndefined();
+		expect(diagnostic.installCandidate?.id).toBe("vue");
 		expect(selectServers(config, file, "semantic", available).primary?.id).toBe(
 			"vue",
 		);
@@ -505,15 +505,24 @@ describe("server selection", () => {
 		).toEqual({ auxiliaries: [] });
 	});
 
-	it("keeps every web diagnostics route without an install candidate", () => {
+	it("marks only the admitted Vue route as a diagnostics install candidate", () => {
 		const config = createDefaultConfig();
+		const vue = selectServers(
+			config,
+			{ ...selectedFile, extension: ".vue", languageId: "vue" },
+			"diagnostics",
+			selectionContext(),
+		);
+		expect(vue.primary?.id).toBe("vue");
+		// Vue is now admitted: a trusted project with auto-install enabled can
+		// install the candidate when its route is unavailable.
+		expect(vue.installCandidate?.id).toBe("vue");
 		for (const [extension, languageId, primaryId] of [
-			[".vue", "vue", "vue"],
 			[".html", "html", "eslint"],
 			[".css", "css", "biome"],
 		] as const) {
-			// The generic resolver still selects a diagnostics candidate for the
-			// extension; admission never marks one installable, so nothing is installed.
+			// The remaining web routes stay candidates, so they are never selected
+			// as an install candidate even when the extension resolves.
 			const selection = selectServers(
 				config,
 				{ ...selectedFile, extension, languageId },

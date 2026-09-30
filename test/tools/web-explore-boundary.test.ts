@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createDefaultConfig } from "../../src/config/load.js";
 import type { EffectiveConfig } from "../../src/contracts.js";
+import { VUE_RECIPE } from "../../src/install/catalog.js";
 import { evaluateInstallPolicy } from "../../src/install/policy.js";
 import { discoverFiles } from "../../src/resolve/discover.js";
 import { TransientRuntimeError } from "../../src/runtime/retry.js";
@@ -45,6 +46,23 @@ const WEB_CANDIDATES: readonly WebCandidate[] = [
 ];
 
 const WEB_FILES = WEB_CANDIDATES.map((candidate) => candidate.file);
+
+/**
+ * The pinned recipe rows decide whether the real policy can admit Vue on a host.
+ * The deterministic suite derives its expectation from them so it stays correct
+ * on machines outside the three verified rows instead of assuming the runner.
+ */
+function pinsVueHost(
+	platform: NodeJS.Platform,
+	architecture: NodeJS.Architecture,
+): boolean {
+	return VUE_RECIPE.targets.some(
+		(target) =>
+			target.platform === platform && target.architecture === architecture,
+	);
+}
+
+const VUE_PINNED_ON_HOST = pinsVueHost(process.platform, process.arch);
 
 const temporaryDirectories: string[] = [];
 
@@ -90,6 +108,8 @@ interface HarnessOptions {
 	root: string;
 	network: "auto" | "offline";
 	autoInstall: boolean;
+	platform?: NodeJS.Platform;
+	architecture?: NodeJS.Architecture;
 	resolveCommand?: (command: string) => Promise<string | undefined>;
 }
 
@@ -136,6 +156,8 @@ function createWebHarness(options: HarnessOptions): Harness {
 		start,
 		resolveCommand,
 		load,
+		platform: options.platform ?? process.platform,
+		architecture: options.architecture ?? process.arch,
 	});
 	return {
 		service,
@@ -180,6 +202,18 @@ describe("web exploration matrix", () => {
 			const root = await temporaryDirectory("pi-lsp-web-read-");
 			await writeWebFiles(root);
 			const harness = createWebHarness({ root, network, autoInstall });
+			// The real admission policy decides whether an LSP read may reach the
+			// install seam. Only the admitted Vue route can allow it; the remaining
+			// web candidates have no internal recipe.
+			const decision = evaluateInstallPolicy({
+				origin: "tool",
+				serverId: candidate.id,
+				globalConfig: harness.config,
+				projectConfig: harness.config,
+				projectTrusted: trusted,
+				platform: process.platform,
+				architecture: process.arch,
+			});
 			await expect(
 				harness.service.read(
 					context(root, trusted),
@@ -188,10 +222,12 @@ describe("web exploration matrix", () => {
 					async (operation) => operation.server.id,
 				),
 			).rejects.toMatchObject({
-				code: trusted ? "server_unavailable" : "untrusted_project",
+				code: !trusted
+					? "untrusted_project"
+					: decision.allowed
+						? "runtime_failed"
+						: "server_unavailable",
 			});
-			// The trust check precedes configuration; the policy denial follows the
-			// network and recipe checks before trust.
 			if (trusted) {
 				expect(harness.load).toHaveBeenCalledTimes(1);
 				expect(harness.resolveCommand).toHaveBeenCalledWith(
@@ -203,28 +239,39 @@ describe("web exploration matrix", () => {
 				expect(harness.load).not.toHaveBeenCalled();
 				expect(harness.resolveCommand).not.toHaveBeenCalled();
 			}
-			const decision = evaluateInstallPolicy({
-				origin: "tool",
-				serverId: candidate.id,
-				globalConfig: harness.config,
-				projectConfig: harness.config,
-				projectTrusted: trusted,
-				platform: process.platform,
-				architecture: process.arch,
-			});
-			expect(decision.allowed).toBe(false);
-			if (!decision.allowed)
+			// The admission decision is the real one: Vue is permitted only on a host
+			// inside its pinned rows, with a trusted project, an automatic network, and
+			// auto-install enabled.
+			const vueAdmittedHere =
+				candidate.id === "vue" &&
+				VUE_PINNED_ON_HOST &&
+				trusted &&
+				network === "auto" &&
+				autoInstall;
+			expect(decision.allowed).toBe(vueAdmittedHere);
+			if (!decision.allowed && trusted)
 				expect(decision.reason).toBe(
-					network === "offline" ? "offline" : "recipe_missing",
+					network === "offline"
+						? "offline"
+						: candidate.id !== "vue"
+							? "recipe_missing"
+							: VUE_PINNED_ON_HOST
+								? "auto_install_disabled"
+								: "unsupported_platform",
 				);
-			expect(harness.coordinator).not.toHaveBeenCalled();
+			// A denied request never reaches the coordinator seam. An authorized one
+			// reaches it, and the harness injects no coordinator, so nothing installs,
+			// spawns, or writes audit state.
+			expect(harness.coordinator).toHaveBeenCalledTimes(
+				decision.allowed ? 1 : 0,
+			);
 			expect(harness.pool).not.toHaveBeenCalled();
 			expect(harness.start).not.toHaveBeenCalled();
 			await expectUntouchedWorkspace(root, WEB_FILES);
 		},
 	);
 
-	it("discovers and scans every web file without installing or spawning", async () => {
+	it("discovers every web file and lets only an admitted principal reach the install seam", async () => {
 		for (const network of ["auto", "offline"] as const) {
 			for (const autoInstall of [true, false]) {
 				for (const trusted of [true, false]) {
@@ -246,24 +293,39 @@ describe("web exploration matrix", () => {
 						{ paths: ["."] },
 						undefined,
 					);
+					// Discovery alone installs nothing. The batch tool is an authorized
+					// LSP tool, so only a Vue group the real policy admits may reach the
+					// install seam; the harness injects no coordinator, and Tailwind and
+					// ESLint are denied because they have no internal recipe.
+					const vueAdmitted =
+						trusted && VUE_PINNED_ON_HOST && network === "auto" && autoInstall;
 					if (trusted) {
 						const output = text(result) as {
 							filesScanned: number;
 							serversUsed: string[];
-							failures: { code: string }[];
+							failures: { serverId: string; code: string }[];
 						};
 						expect(output.filesScanned, label).toBe(WEB_FILES.length);
 						expect(output.serversUsed, label).toEqual([]);
 						expect(
-							output.failures.map((failure) => failure.code),
+							output.failures.map((failure) => [
+								failure.serverId,
+								failure.code,
+							]),
 							label,
-						).toEqual(WEB_FILES.map(() => "server_unavailable"));
+						).toEqual([
+							["eslint", "server_unavailable"],
+							["tailwindcss", "server_unavailable"],
+							["vue", vueAdmitted ? "runtime_failed" : "server_unavailable"],
+						]);
 						expect(harness.load, label).toHaveBeenCalledTimes(1);
 					} else {
 						expect(result.details?.code, label).toBe("untrusted_project");
 						expect(harness.load, label).not.toHaveBeenCalled();
 					}
-					expect(harness.coordinator, label).not.toHaveBeenCalled();
+					expect(harness.coordinator, label).toHaveBeenCalledTimes(
+						vueAdmitted ? 1 : 0,
+					);
 					expect(harness.pool, label).not.toHaveBeenCalled();
 					expect(harness.start, label).not.toHaveBeenCalled();
 					await expectUntouchedWorkspace(root, WEB_FILES);
@@ -272,7 +334,7 @@ describe("web exploration matrix", () => {
 		}
 	});
 
-	it("lists the web candidates as unavailable and not installable", async () => {
+	it("lists the web servers as unavailable and reports admission per entry", async () => {
 		const root = await temporaryDirectory("pi-lsp-web-status-");
 		await writeWebFiles(root);
 		for (const trusted of [true, false]) {
@@ -293,15 +355,18 @@ describe("web exploration matrix", () => {
 			expect(output.trusted).toBe(trusted);
 			for (const candidate of WEB_CANDIDATES) {
 				const row = output.servers.find((item) => item.id === candidate.id);
+				const recipePresent = candidate.id === "vue";
 				expect(row, candidate.id).toMatchObject({
 					enabled: true,
 					available: false,
 					runnable: false,
-					admission: "candidate",
+					admission: recipePresent ? "auto-installable" : "candidate",
 					autoInstall: true,
 					routeConfigured: true,
-					recipePresent: false,
-					installable: false,
+					recipePresent,
+					// Status reports the explicit origin, so installability follows the
+					// pinned rows instead of the network or auto-install policy.
+					installable: recipePresent && VUE_PINNED_ON_HOST,
 					runtime: "inactive",
 				});
 			}
@@ -310,6 +375,51 @@ describe("web exploration matrix", () => {
 			expect(harness.start).not.toHaveBeenCalled();
 			await expectUntouchedWorkspace(root, WEB_FILES);
 		}
+	});
+
+	it("denies the Vue route when the host is outside its pinned rows", async () => {
+		const root = await temporaryDirectory("pi-lsp-web-unpinned-");
+		await writeWebFiles(root);
+		// An exact platform pair outside the recipe rows. If the rows ever include
+		// it, this guard fails and the probe must move to another pair.
+		const unpinned = { platform: "linux", architecture: "arm64" } as const;
+		expect(pinsVueHost(unpinned.platform, unpinned.architecture)).toBe(false);
+		// A real policy probe covers the unpinned case on every runner without
+		// touching process.platform, process.arch, or any other runtime global.
+		const config = createDefaultConfig();
+		const decision = evaluateInstallPolicy({
+			origin: "tool",
+			serverId: "vue",
+			globalConfig: config,
+			projectConfig: config,
+			projectTrusted: true,
+			...unpinned,
+		});
+		expect(decision).toMatchObject({
+			allowed: false,
+			reason: "unsupported_platform",
+		});
+		// The same injected platform reaches the tool path: the real policy denies
+		// the route, so no install, spawn, or managed state can follow.
+		const harness = createWebHarness({
+			root,
+			network: "auto",
+			autoInstall: true,
+			...unpinned,
+		});
+		await expect(
+			harness.service.read(
+				context(root, true),
+				"Component.vue",
+				"diagnostics",
+				async (operation) => operation.server.id,
+			),
+		).rejects.toMatchObject({ code: "server_unavailable" });
+		expect(harness.load).toHaveBeenCalledTimes(1);
+		expect(harness.coordinator).not.toHaveBeenCalled();
+		expect(harness.pool).not.toHaveBeenCalled();
+		expect(harness.start).not.toHaveBeenCalled();
+		await expectUntouchedWorkspace(root, WEB_FILES);
 	});
 });
 

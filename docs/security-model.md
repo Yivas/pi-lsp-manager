@@ -21,7 +21,7 @@ Automatic installation can begin only from an authorized LSP operation or post-e
 
 Recipes are compiled into the extension. Projects cannot provide package names, versions, registries, URLs, commands, arguments, environment variables, integrity values, or lifecycle scripts. npm runs with:
 
-- an exact generated lockfile for direct-only recipes, or an extension-owned lockfile with the complete pinned dependency tree for Vue (not enabled yet);
+- an exact generated lockfile for direct-only recipes, or an extension-owned lockfile with the complete pinned dependency tree for Vue;
 - `npm ci`;
 - lifecycle scripts disabled;
 - isolated cache, home, prefix, and staging directories;
@@ -36,7 +36,7 @@ Global manual routes use an executable and argv array, never a shell string. The
 
 Servers start only after trust and selection checks. Executable resolution rejects shell indirection, path escapes, and writable managed artifacts; on Unix it follows a command link to its regular executable target, and the managed verifier still requires the resolved target to stay inside the installation root. The runtime uses framed JSON-RPC, request deadlines, cancellation, bounded stderr capture, process reuse, idle reaping, and explicit shutdown.
 
-The manual Vue 3.3.11 route also starts one TypeScript `tsserver` per Vue session. It requires the matching Vue plugin and TypeScript SDK in the same verified npm root before either process starts. The bridge forwards `_vue:` plugin requests with bounded responses and checks a file argument before opening it, rejecting files outside the workspace. The tsserver child receives a reduced host environment, not project-supplied process settings. Invalid request framing, a failed plugin response, timeout, or caller cancellation terminates both processes and evicts the session instead of returning an incomplete semantic result. The plugin has Pi's filesystem privileges; this bridge is not a sandbox.
+The Vue 3.3.11 route, whether configured manually or installed by its admitted recipe, also starts one TypeScript `tsserver` per Vue session. It requires the matching Vue plugin and TypeScript SDK in the same verified npm root before either process starts. The bridge forwards `_vue:` plugin requests with bounded responses and checks a file argument before opening it, rejecting files outside the workspace. The tsserver child receives a reduced host environment, not project-supplied process settings. Invalid request framing, a failed plugin response, timeout, or caller cancellation terminates both processes and evicts the session instead of returning an incomplete semantic result. The plugin has Pi's filesystem privileges; this bridge is not a sandbox.
 
 No telemetry or analytics are collected.
 

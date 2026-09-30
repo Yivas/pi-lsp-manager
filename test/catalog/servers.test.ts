@@ -37,7 +37,7 @@ function candidate(
 }
 
 describe("server catalog", () => {
-	it("registers Vue as a manual principal route without installation claims", () => {
+	it("registers Vue as an auto-installable principal route with verified rows", () => {
 		const server = DEFAULT_SERVERS.find((item) => item.id === "vue");
 		expect(server).toMatchObject({
 			id: "vue",
@@ -46,24 +46,53 @@ describe("server catalog", () => {
 			roles: ["diagnostics", "semantic", "mutation"],
 			priority: 100,
 			route: { command: "vue-language-server", args: ["--stdio"] },
-			autoInstall: false,
-			admission: "candidate",
-			compatibility: [],
+			autoInstall: true,
+			admission: "auto-installable",
 			manualHelp: expect.stringContaining("TypeScript plugin 3.3.11"),
 			diagnostics: { pushGraceMs: 15_000, settleMs: 50, pullGraceMs: 250 },
 		});
 		expect(server?.manualHelp).toContain("vue-language-server.js");
 		expect(server?.manualHelp).toContain("--stdio");
-		expect(getRecipe("vue")).toBeUndefined();
+		expect(
+			server?.compatibility.map((row) => [
+				row.platform,
+				row.architecture,
+				row.runner,
+			]),
+		).toEqual([
+			["win32", "x64", "windows-2022"],
+			["darwin", "arm64", "macos-14"],
+			["linux", "x64", "ubuntu-24.04"],
+		]);
+		for (const row of server?.compatibility ?? []) {
+			expect(row).toMatchObject({
+				nodeVersion: "22.19.0",
+				piVersion: "0.87.1",
+				serverVersion: "3.3.11",
+				languageVersion: "5.9.3",
+			});
+			expect(row.capabilities).toEqual(
+				expect.arrayContaining([
+					"diagnostics",
+					"definition",
+					"references",
+					"document-symbols",
+					"rename",
+					"shutdown",
+				]),
+			);
+		}
+		expect(getRecipe("vue")).toBe(VUE_RECIPE);
 	});
 
-	it("keeps every web candidate unregistered while the Vue recipe is inactive", () => {
-		// This guard must change in the same commit that registers the recipe.
+	it("registers the Vue recipe while the remaining web candidates stay inactive", () => {
 		expect(VUE_RECIPE).toMatchObject({
 			serverId: "vue",
 			admission: "auto-installable",
 		});
-		for (const id of ["vue", "tailwindcss", "eslint"] as const) {
+		expect(getRecipe("vue")).toBe(VUE_RECIPE);
+		expect(getRecipeRevision("vue")).toBe(VUE_RECIPE.revision);
+		for (const id of ["tailwindcss", "eslint"] as const) {
 			const server = DEFAULT_SERVERS.find((item) => item.id === id);
 			expect(server, id).toMatchObject({
 				id,
@@ -134,7 +163,7 @@ describe("server catalog", () => {
 			]),
 		);
 		for (const server of DEFAULT_SERVERS.filter(
-			(item) => item.id !== "typescript",
+			(item) => item.id !== "typescript" && item.id !== "vue",
 		)) {
 			expect(server).toMatchObject({
 				admission: "candidate",

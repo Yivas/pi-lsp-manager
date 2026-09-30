@@ -24,10 +24,11 @@ import { NodePackageManager } from "../../src/install/npm.js";
 import { evaluateInstallPolicy } from "../../src/install/policy.js";
 import { createNodeInstallationVerifier } from "../../src/install/verify.js";
 
-// Real installation gate for the frozen Vue recipe. It injects the decision
-// because RECIPES does not expose `vue`: the policy denial asserted below stays
-// the real one while staging, lock, npm, verification, rollback, cancellation,
-// and the audit trail all run against the production adapters.
+// Real installation gate for the admitted Vue recipe. The policy decision comes
+// from the real `evaluateInstallPolicy` against the default catalog, so the gate
+// cannot pass while the registry or admission is wrong. Staging, lock, npm,
+// verification, rollback, cancellation, and the audit trail all run against the
+// production adapters.
 //
 // CI reuse: `VUE_INSTALL_GATE_ROOT` names the directory the caller owns and
 // removes, and `VUE_INSTALL_GATE_OUTPUT` receives the absolute CLI entry of the
@@ -46,11 +47,37 @@ const handoff =
 // so the bound must stay well above the product default of two minutes on a slow
 // runner. It is injected here only and does not change that default.
 const INSTALL_TIMEOUT_MS = 600_000;
-
-const VUE_INSTALL_DECISION = { allowed: true, recipe: VUE_RECIPE } as const;
+// Keep the vitest bound above the coordinator's install budget so a real
+// `timed_out` result reaches the assertion instead of vitest replacing it with
+// its own test timeout.
+const TEST_TIMEOUT_MS = INSTALL_TIMEOUT_MS + 120_000;
 
 const ownedRoots: string[] = [];
 let retainedRoot: string | undefined;
+
+/**
+ * The real policy decision from the default catalog, not a fabricated permit.
+ * Each opt-in test evaluates it on the running host: a module-level call would
+ * run while the file is collected and fail the whole suite on a host outside the
+ * pinned rows, even though every real test is skipped there.
+ */
+function admittedDecision(): { allowed: true; recipe: typeof VUE_RECIPE } {
+	const decision = evaluateInstallPolicy({
+		origin: "tool",
+		serverId: "vue",
+		globalConfig: createDefaultConfig(),
+		projectTrusted: true,
+		platform: process.platform,
+		architecture: process.arch,
+	});
+	if (!decision.allowed)
+		throw new Error(
+			`The real Vue policy must allow installation: ${decision.reason}`,
+		);
+	if (decision.recipe !== VUE_RECIPE)
+		throw new Error("The real policy must resolve the registered Vue recipe.");
+	return { allowed: true, recipe: VUE_RECIPE };
+}
 
 async function gateRoot(prefix: string): Promise<string> {
 	// A caller-provided root is the CI gate directory, so every artifact stays
@@ -126,21 +153,24 @@ async function auditRecords(managed: string): Promise<AuditRecord[]> {
 describe.runIf(runReal)(
 	"Vue installation gate with the real coordinator",
 	() => {
-		it("keeps the recipe unregistered and the real policy denied", () => {
-			expect(getRecipe("vue")).toBeUndefined();
-			expect(getRecipeRevision("vue")).toBeUndefined();
-			const decision = evaluateInstallPolicy({
-				origin: "tool",
-				serverId: "vue",
-				globalConfig: createDefaultConfig(),
-				projectTrusted: true,
-				platform: process.platform,
-				architecture: process.arch,
-			});
-			expect(decision).toMatchObject({
-				allowed: false,
-				reason: "recipe_missing",
-			});
+		it("admits the real Vue policy on each pinned platform", () => {
+			expect(getRecipe("vue")).toBe(VUE_RECIPE);
+			expect(getRecipeRevision("vue")).toBe(VUE_RECIPE.revision);
+			for (const [platform, architecture] of [
+				["win32", "x64"],
+				["darwin", "arm64"],
+				["linux", "x64"],
+			] as const) {
+				const decision = evaluateInstallPolicy({
+					origin: "tool",
+					serverId: "vue",
+					globalConfig: createDefaultConfig(),
+					projectTrusted: true,
+					platform,
+					architecture,
+				});
+				expect(decision.allowed, `${platform}/${architecture}`).toBe(true);
+			}
 		});
 
 		it(
@@ -153,7 +183,7 @@ describe.runIf(runReal)(
 				const instance = coordinator();
 				try {
 					const result = await instance.install({
-						decision: VUE_INSTALL_DECISION,
+						decision: admittedDecision(),
 						managedStatePath: managed,
 						signal: controller.signal,
 						onPhase: (phase) => {
@@ -191,7 +221,7 @@ describe.runIf(runReal)(
 					await instance.shutdown();
 				}
 			},
-			INSTALL_TIMEOUT_MS,
+			TEST_TIMEOUT_MS,
 		);
 
 		it(
@@ -225,7 +255,7 @@ describe.runIf(runReal)(
 					await instance.shutdown();
 				}
 			},
-			INSTALL_TIMEOUT_MS,
+			TEST_TIMEOUT_MS,
 		);
 
 		it(
@@ -236,7 +266,7 @@ describe.runIf(runReal)(
 				const instance = coordinator();
 				try {
 					const result = await instance.install({
-						decision: VUE_INSTALL_DECISION,
+						decision: admittedDecision(),
 						managedStatePath: managed,
 					});
 					expect(result.status, result.reason).toBe("ready");
@@ -284,7 +314,7 @@ describe.runIf(runReal)(
 					await instance.shutdown();
 				}
 			},
-			INSTALL_TIMEOUT_MS,
+			TEST_TIMEOUT_MS,
 		);
 	},
 );

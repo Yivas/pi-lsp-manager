@@ -4,13 +4,14 @@
 
 ### Added
 
-- Built-in Vue Language Server candidate route for `.vue` files using `vue-language-server --stdio`; it remains manual-only and has no compatibility or installation claim.
-- Manual Vue 3.3.11 route pairs with a pinned TypeScript 5.9.3 server and Vue plugin for script diagnostics and semantic operations. Its internal installation recipe is not active.
+- Built-in Vue Language Server route for `.vue` files using `vue-language-server --stdio`. On `main` it is `auto-installable` through an internal recipe, with verified Windows x64, macOS arm64, and Linux x64 rows on Node 22.19.0 and the 0.87.1 development host. The published `0.2.0` release remains TypeScript-only and does not claim this route.
+- Vue Language Server 3.3.11 pairs with a pinned `@vue/typescript-plugin` 3.3.11 and TypeScript 5.9.3 for script diagnostics and semantic operations. Its locked recipe installs `@vue/language-server` 3.3.11, `@vue/typescript-plugin` 3.3.11, `typescript` 5.9.3, and `vue` 3.5.43 from one complete lockfile.
 
 ### Fixed
 
 - Multi-file `WorkspaceEdit` rollback now preserves external file changes and deletions and reports recovery artifacts left by cleanup failures.
 - Installation lock waiters retry when a lock is released between exclusive-open failure and the ownership read, instead of requiring manual repair.
+- Package-manager runs now disable Node's module compile cache (`NODE_DISABLE_COMPILE_CACHE=1`), so an `npm ci` under a deep staging path on Windows no longer spins while that cache initializes instead of completing.
 
 ## 0.2.0 - 2026-09-01
 

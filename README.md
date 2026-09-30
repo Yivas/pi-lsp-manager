@@ -10,7 +10,7 @@ Read the full documentation at [yivas.github.io/pi-lsp-manager](https://yivas.gi
 
 ## Status
 
-Version `0.2.0` adds the manual catalog, complete global routes, batch diagnostics, source-fix workflow, and expanded status fields. TypeScript Language Server `5.3.0` with TypeScript `5.9.3` remains the only auto-installable and platform-tested route; compatibility claims are limited to the exact rows in [Language servers](docs/servers.md).
+Version `0.2.0` adds the manual catalog, complete global routes, batch diagnostics, source-fix workflow, and expanded status fields. In `0.2.0`, TypeScript Language Server `5.3.0` with TypeScript `5.9.3` is the only auto-installable and platform-tested route. The `main` branch also registers an `auto-installable` Vue route with verified rows, which the published release does not claim. Compatibility claims are limited to the exact rows in [Language servers](docs/servers.md).
 
 ## How it works
 

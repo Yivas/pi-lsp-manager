@@ -25,7 +25,7 @@ Start with these sanitized views:
 
 ## Installation and diagnostics
 
-Only the TypeScript route can be installed automatically. `server_unavailable` can mean that installation is disabled, network policy is `offline`, the route lacks a recipe, or the platform is outside verified rows. Use `/lsp install typescript` only when global policy permits it.
+The built-in `typescript` and `vue` routes can be installed automatically. `server_unavailable` can mean that installation is disabled, network policy is `offline`, the route lacks a recipe, or the platform is outside verified rows. Use `/lsp install typescript` or `/lsp install vue` only when global policy permits it.
 
 `diagnostics_timed_out` means no initial push diagnostic arrived before `pushGraceMs` (five seconds by default). Confirm the project is valid for the server, inspect `lsp_status`, review timings, restart Pi, and reproduce in a small project before reporting it.
 
