@@ -1,13 +1,14 @@
-import { access, lstat } from "node:fs/promises";
+import { access, lstat, stat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { posix, win32 } from "node:path";
 
 export interface ExecutableFileSystem {
+	stat(path: string): Promise<{ isFile(): boolean }>;
 	lstat(path: string): Promise<{ isFile(): boolean }>;
 	access(path: string, mode?: number): Promise<void>;
 }
 
-const NODE_FILE_SYSTEM: ExecutableFileSystem = { lstat, access };
+const NODE_FILE_SYSTEM: ExecutableFileSystem = { stat, lstat, access };
 
 function getEnvironment(
 	environment: NodeJS.ProcessEnv,
@@ -37,7 +38,15 @@ async function isExecutable(
 	platform: NodeJS.Platform,
 ): Promise<boolean> {
 	try {
-		const status = await fileSystem.lstat(path);
+		// A Unix command is often a link: the official npm of a Node install and every
+		// `node_modules/.bin` shim are. Following the link keeps a broken target, a
+		// directory, and a loop rejected, because `stat` fails or reports no regular
+		// file. Windows candidates stay plain files, as the installation verifier
+		// requires, because its extension-based shims are real files.
+		const status =
+			platform === "win32"
+				? await fileSystem.lstat(path)
+				: await fileSystem.stat(path);
 		if (!status.isFile()) {
 			return false;
 		}
