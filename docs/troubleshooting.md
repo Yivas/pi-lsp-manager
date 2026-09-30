@@ -50,6 +50,27 @@ Use `/lsp audit` for sanitized decision history. Common causes are:
 
 Retry only after resolving the reported cause. Do not delete managed directories while Pi is running. Status checks, discovery, and manual routes do not create installation state.
 
+A residual in `/lsp audit` means the coordinator kept managed state it could not clean safely, instead of deleting it blindly:
+
+- `termination_unconfirmed` — the package-manager process could not be confirmed stopped. That server's partial staging directory and its per-server lock are kept, so a later install of the same server and revision waits on the lock instead of overlapping a live process.
+- `staging_cleanup_failed` — termination was confirmed, but removing the partial directory still failed after four retries with linear backoff (up to 5 seconds of waiting). The partial directory is kept and the lock is released.
+- `lock_release_failed` — releasing the per-server lock timed out or failed, so the lock may still be held.
+
+### Repairing a retained lock
+
+A retained lock makes later installs of that server and revision wait, and eventually fail, until the file is gone. Repair it by hand, and only for that one file:
+
+1. Quit Pi completely. Expected: no Pi process, and no `npm` or installer process it started, is still running for that server.
+2. Open `<Pi agent directory>/lsp-manager/locks/` and read `<serverId>-<revision>.lock`. Expected: a small JSON file with `pid`, `startedAt`, `nonce`, `serverId`, and `revision`.
+3. Confirm the file names the same `serverId` and `revision` you are repairing, that the process it records is not running, and that no other Pi instance owns it.
+4. Delete only that lock file. Expected: retrying the install no longer stops at the `manual_lock_repair` reason.
+
+Do not delete the `lsp-manager` directory, the `servers` tree, or any `.partial-` or `.invalid-` directory. A partial reported by a residual is the recovery artifact, and a quarantine directory is deliberate. An install that finds a lock whose owner is dead or unreadable reports `manual_lock_repair` instead of reclaiming it.
+
+### Shutdown and cleanup budget
+
+Shutdown is finite but not instantaneous, and it has no single deadline: each cleanup phase carries its own bound, and the filesystem work inside a phase is not itself deadline-limited. The termination proof waits up to 6.5 seconds on Windows and 4.5 seconds elsewhere; staging removal retries with linear backoff worth up to 5 seconds; lock release is bounded at 2 seconds; and the audit write is bounded at 1 second. Those fixed bounds sum to about 14.5 seconds on Windows and 12.5 seconds elsewhere, so a slow disk can take longer, but the work still completes instead of hanging.
+
 ## Diagnostics time out
 
 `diagnostics_timed_out` means the client did not receive the initial asynchronous publication within the configured `pushGraceMs` (5 seconds by default; 15 seconds for the Vue candidate while its plugin analyzes the initial document). A clean Vue file with an empty publication can still take the full 15 seconds, and a cold project may time out once before a retry succeeds. If navigation works but diagnostics keep timing out:

@@ -94,7 +94,7 @@ export function registerLspCommand(
 						const audit = await service.auditSnapshot(ctx, controller.signal);
 						notify(
 							ctx,
-							`LSP audit: ${audit.records} recent records${audit.lastResult ? `; last result ${audit.lastResult}` : ""}.`,
+							`LSP audit: ${audit.records} recent records${audit.lastResult ? `; last result ${audit.lastResult}` : ""}${audit.lastResidual ? `; retained residual ${audit.lastResidual}` : ""}.`,
 						);
 						return;
 					}

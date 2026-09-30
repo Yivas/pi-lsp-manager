@@ -1,24 +1,33 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import type { PackageManager, RunningPackageManager } from "./coordinator.js";
+import type {
+	PackageManager,
+	PackageManagerTermination,
+	RunningPackageManager,
+} from "./coordinator.js";
 import { createCmdShimLaunch, type PackageManagerLaunch } from "./launch.js";
 import { BoundedSanitizedOutput, sanitizeText } from "./sanitize.js";
 
 export type SpawnFunction = typeof spawn;
 
+/** Resolves true only when the child reached its close or error event. */
 function waitForClose(
 	child: ChildProcess,
 	milliseconds: number,
-): Promise<void> {
+): Promise<boolean> {
+	if (child.exitCode !== null || child.signalCode !== null)
+		return Promise.resolve(true);
 	return new Promise((resolve) => {
-		const timer = setTimeout(resolve, milliseconds);
-		child.once("close", () => {
+		const finish = (closed: boolean) => {
 			clearTimeout(timer);
-			resolve();
-		});
-		child.once("error", () => {
-			clearTimeout(timer);
-			resolve();
-		});
+			child.removeListener("close", onClose);
+			child.removeListener("error", onError);
+			resolve(closed);
+		};
+		const onClose = () => finish(true);
+		const onError = () => finish(true);
+		const timer = setTimeout(() => finish(false), milliseconds);
+		child.once("close", onClose);
+		child.once("error", onError);
 	});
 }
 
@@ -26,8 +35,8 @@ async function terminateProcessTree(
 	child: ChildProcess,
 	platform: NodeJS.Platform,
 	spawnProcess: SpawnFunction,
-): Promise<void> {
-	if (!child.pid) return;
+): Promise<PackageManagerTermination> {
+	if (!child.pid) return { confirmed: true };
 	if (platform === "win32") {
 		const killer = spawnProcess(
 			"taskkill",
@@ -37,23 +46,23 @@ async function terminateProcessTree(
 				windowsHide: true,
 			},
 		);
+		// `taskkill` exiting only proves the kill command ran. The child's own close event is
+		// the proof that the staging directory is no longer held as a working directory.
 		await waitForClose(killer, 5_000);
-		return;
+		return { confirmed: await waitForClose(child, 1_000) };
 	}
 	try {
 		process.kill(-child.pid, "SIGTERM");
 	} catch {
 		child.kill("SIGTERM");
 	}
-	await waitForClose(child, 2_000);
-	if (child.exitCode === null) {
-		try {
-			process.kill(-child.pid, "SIGKILL");
-		} catch {
-			child.kill("SIGKILL");
-		}
-		await waitForClose(child, 2_000);
+	if (await waitForClose(child, 2_000)) return { confirmed: true };
+	try {
+		process.kill(-child.pid, "SIGKILL");
+	} catch {
+		child.kill("SIGKILL");
 	}
+	return { confirmed: await waitForClose(child, 2_000) };
 }
 
 /** Production adapter. It accepts only launch descriptions built from a controlled recipe. */

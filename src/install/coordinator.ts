@@ -1,7 +1,11 @@
 import { lstat, mkdir, rename, rm } from "node:fs/promises";
 import { join, normalize, resolve } from "node:path";
 import type { InstallPolicyDecision } from "./policy.js";
-import { appendAuditRecord, type AuditRecord } from "./audit.js";
+import {
+	appendAuditRecord,
+	type AuditRecord,
+	type InstallResidual,
+} from "./audit.js";
 import { acquireLock, type LockFileSystem, type LockIdentity } from "./lock.js";
 import {
 	createPackageManagerLaunch,
@@ -34,14 +38,31 @@ export interface ManagedFileSystem {
 		options: { recursive: true; mode?: number },
 	): Promise<unknown>;
 	rename(from: string, to: string): Promise<void>;
-	rm(path: string, options: { recursive: true; force: true }): Promise<void>;
+	rm(
+		path: string,
+		options: {
+			recursive: true;
+			force: true;
+			maxRetries?: number;
+			retryDelay?: number;
+		},
+	): Promise<void>;
 }
 
 const NODE_FILE_SYSTEM: ManagedFileSystem = { mkdir, rename, rm };
 
+/**
+ * The adapter owns the termination proof: `confirmed` is true only when it observed the
+ * package-manager process leave the operating system, which is the child close event and
+ * not the kill command's own exit.
+ */
+export interface PackageManagerTermination {
+	confirmed: boolean;
+}
+
 export interface RunningPackageManager {
 	completed: Promise<{ exitCode: number; stdout: string; stderr: string }>;
-	terminate(): Promise<void>;
+	terminate(): Promise<PackageManagerTermination>;
 }
 
 export interface PackageManager {
@@ -65,6 +86,10 @@ export interface CoordinatorDependencies {
 	platform?: NodeJS.Platform;
 	npmCommand?: string;
 	installTimeoutMs?: number;
+	/** Bound for the adapter's termination proof; defaults past the platform kill budgets. */
+	terminationBudgetMs?: number;
+	/** Bound for releasing the per-server lock during cleanup. */
+	releaseBudgetMs?: number;
 	prepareStaging?: (
 		path: string,
 		decision: Extract<InstallPolicyDecision, { allowed: true }>["recipe"],
@@ -98,6 +123,23 @@ interface ActiveInstallation {
 }
 
 class AbortError extends Error {}
+
+/**
+ * The adapter resolves `terminate()` only after the child close event, which on Windows can
+ * take the whole 5 s `taskkill` bound plus a grace period and 2 s + 2 s of SIGTERM/SIGKILL
+ * elsewhere. The coordinator waits past those own bounds before treating termination as
+ * unconfirmed.
+ */
+const WINDOWS_TERMINATION_BUDGET_MS = 6_500;
+const UNIX_TERMINATION_BUDGET_MS = 4_500;
+const RELEASE_BUDGET_MS = 2_000;
+/**
+ * Removal runs after a confirmed termination, but the managed tree can still hold the staging
+ * directory briefly. `fs.rm` retries EBUSY/EPERM/ENOTEMPTY/EMFILE/ENFILE with a linear backoff
+ * only when `maxRetries` is set: 500 + 1000 + 1500 + 2000 = 5 s of waiting before it gives up.
+ */
+const STAGING_REMOVAL_MAX_RETRIES = 4;
+const STAGING_REMOVAL_RETRY_DELAY_MS = 500;
 
 function processIsAlive(owner: LockIdentity): Promise<boolean> {
 	try {
@@ -194,6 +236,7 @@ export class InstallCoordinator {
 		Pick<CoordinatorDependencies, "lockFileSystem">;
 
 	public constructor(dependencies: CoordinatorDependencies) {
+		const platform = dependencies.platform ?? process.platform;
 		this.dependencies = {
 			...dependencies,
 			fileSystem: dependencies.fileSystem ?? NODE_FILE_SYSTEM,
@@ -203,9 +246,15 @@ export class InstallCoordinator {
 			sleep: dependencies.sleep ?? sleepWithAbort,
 			audit: dependencies.audit ?? appendAuditRecord,
 			environment: dependencies.environment ?? process.env,
-			platform: dependencies.platform ?? process.platform,
+			platform,
 			npmCommand: dependencies.npmCommand ?? "npm",
 			installTimeoutMs: dependencies.installTimeoutMs ?? 120_000,
+			terminationBudgetMs:
+				dependencies.terminationBudgetMs ??
+				(platform === "win32"
+					? WINDOWS_TERMINATION_BUDGET_MS
+					: UNIX_TERMINATION_BUDGET_MS),
+			releaseBudgetMs: dependencies.releaseBudgetMs ?? RELEASE_BUDGET_MS,
 			prepareStaging: dependencies.prepareStaging ?? prepareControlledNpmFiles,
 			resolvePackageManagerCommand:
 				dependencies.resolvePackageManagerCommand ?? resolveExecutable,
@@ -318,7 +367,7 @@ export class InstallCoordinator {
 		let release: (() => Promise<void>) | undefined;
 		let processHandle: RunningPackageManager | undefined;
 		let startPromise: Promise<RunningPackageManager> | undefined;
-		let lateTermination: Promise<void> | undefined;
+		let lateTermination: Promise<PackageManagerTermination> | undefined;
 		let final: InstallResult = { status: "failed", reason: "internal_error" };
 		let committing = false;
 		let emittedTerminalFailure = false;
@@ -523,26 +572,60 @@ export class InstallCoordinator {
 		} finally {
 			if (signal.aborted && processHandle && !committing)
 				lateTermination ??= processHandle.terminate();
-			if (signal.aborted && startPromise) {
-				await raceTimeout(
-					startPromise
-						.then(async (handle) => {
-							if (!lateTermination) lateTermination = handle.terminate();
-							await lateTermination;
-						})
-						.catch(() => undefined),
-					1_000,
-				).catch(() => undefined);
-			}
-			await raceTimeout(lateTermination ?? Promise.resolve(), 1_000).catch(
-				() => undefined,
-			);
 			clearTimeout(timeout);
-			if (final.status !== "ready")
-				await this.dependencies.fileSystem
-					.rm(staging, { recursive: true, force: true })
-					.catch(() => undefined);
-			await release?.().catch(() => undefined);
+			// `terminate()` only proves the kill command ran, so the coordinator waits for the
+			// adapter's own confirmation, including for a launch that resolves after the abort.
+			// The wait is bounded so a non-cooperative adapter cannot keep shutdown open.
+			const termination =
+				signal.aborted && (lateTermination || startPromise)
+					? raceTimeout(
+							(async () => {
+								if (startPromise && !lateTermination) {
+									const handle = await startPromise.catch(() => undefined);
+									if (handle) lateTermination ??= handle.terminate();
+								}
+								return lateTermination
+									? await lateTermination
+									: { confirmed: true };
+							})(),
+							this.dependencies.terminationBudgetMs,
+						).catch(() => undefined)
+					: Promise.resolve({ confirmed: true });
+			const terminationConfirmed = (await termination)?.confirmed === true;
+			let residual: InstallResidual | undefined;
+			if (final.status !== "ready") {
+				if (terminationConfirmed) {
+					try {
+						await this.dependencies.fileSystem.rm(staging, {
+							recursive: true,
+							force: true,
+							maxRetries: STAGING_REMOVAL_MAX_RETRIES,
+							retryDelay: STAGING_REMOVAL_RETRY_DELAY_MS,
+						});
+					} catch {
+						// The partial directory is the recovery artifact; the residual below records
+						// that it was kept, without exposing its path.
+					}
+					if (await pathExists(staging)) residual = "staging_cleanup_failed";
+				} else {
+					// The process may still hold the staging directory as its working directory.
+					// Keep the partial and the lock so no retry can overlap that execution.
+					residual = "termination_unconfirmed";
+				}
+			}
+			if (release && (final.status === "ready" || terminationConfirmed)) {
+				const released = await raceTimeout(
+					release(),
+					this.dependencies.releaseBudgetMs,
+				).then(
+					() => true,
+					() => false,
+				);
+				// A release that timed out or failed can leave the per-server lock behind, which
+				// blocks later installs of that revision, so it takes precedence over a retained
+				// staging residual in the single-valued audit enum.
+				if (!released) residual = "lock_release_failed";
+			}
 			if (release) {
 				await raceTimeout(
 					this.dependencies.audit(auditPath, {
@@ -559,6 +642,7 @@ export class InstallCoordinator {
 									: final.reason === "cancelled"
 										? "cancelled"
 										: "failed",
+						...(residual ? { residual } : {}),
 					}),
 					1_000,
 				).catch(() => undefined);

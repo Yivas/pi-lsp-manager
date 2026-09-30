@@ -93,6 +93,7 @@ class FakePackageManager implements PackageManager {
 				terminate: async () => {
 					this.terminateCalls += 1;
 					settle?.({ exitCode: 143, stdout: "", stderr: "terminated" });
+					return { confirmed: true };
 				},
 			};
 			if (!this.holdStart) {
@@ -129,6 +130,7 @@ class DelayedExitPackageManager implements PackageManager {
 					stdout: "",
 					stderr: "terminated",
 				});
+				return { confirmed: true };
 			},
 		});
 	}
@@ -286,13 +288,15 @@ describe("Vue recipe gate without admission", () => {
 			"failed",
 		]);
 		await expectNoOwnedArtifacts(managed);
-		expect(await auditRecords(managed)).toEqual([
+		const records = await auditRecords(managed);
+		expect(records).toEqual([
 			expect.objectContaining({
 				serverId: "vue",
 				revision: VUE_RECIPE.revision,
 				result: "cancelled",
 			}),
 		]);
+		expect(records[0]?.residual).toBeUndefined();
 	});
 
 	it("leaves no owned Vue state when the cancellation lands right after the package manager exits", async () => {
@@ -352,13 +356,15 @@ describe("Vue recipe gate without admission", () => {
 			await instance.shutdown();
 		}
 		await expectNoOwnedArtifacts(managed);
-		expect(await auditRecords(managed)).toEqual([
+		const records = await auditRecords(managed);
+		expect(records).toEqual([
 			expect.objectContaining({
 				serverId: "vue",
 				revision: VUE_RECIPE.revision,
 				result: "cancelled",
 			}),
 		]);
+		expect(records[0]?.residual).toBeUndefined();
 	});
 
 	it("rolls back a failed Vue verification and releases its lock", async () => {

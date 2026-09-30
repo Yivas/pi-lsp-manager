@@ -84,6 +84,7 @@ class FakePackageManager implements PackageManager {
 			terminate: async () => {
 				this.terminateCalls += 1;
 				resolve({ exitCode: 143, stdout: "", stderr: "terminated" });
+				return { confirmed: true };
 			},
 		};
 	}
@@ -501,7 +502,7 @@ describe("installation coordinator", () => {
 		const manager: PackageManager = {
 			start: async () => ({
 				completed: new Promise(() => undefined),
-				terminate: async () => undefined,
+				terminate: async () => ({ confirmed: true }),
 			}),
 		};
 		const instance = new InstallCoordinator({

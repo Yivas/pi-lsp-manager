@@ -177,13 +177,16 @@ describe.runIf(runReal)(
 					await expect(access(revisionTarget(managed))).rejects.toThrow();
 					expect(await readdir(serverRoot(managed))).toEqual([]);
 					await expect(access(lockPath(managed))).rejects.toThrow();
-					expect(await auditRecords(managed)).toEqual([
+					const records = await auditRecords(managed);
+					expect(records).toEqual([
 						expect.objectContaining({
 							serverId: "vue",
 							revision: VUE_RECIPE.revision,
 							result: "cancelled",
 						}),
 					]);
+					// The real npm tree was confirmed stopped, so nothing was retained.
+					expect(records[0]?.residual).toBeUndefined();
 				} finally {
 					await instance.shutdown();
 				}

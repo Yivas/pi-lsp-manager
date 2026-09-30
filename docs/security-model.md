@@ -28,7 +28,7 @@ Recipes are compiled into the extension. Projects cannot provide package names, 
 - a minimal environment;
 - integrity and executable verification before promotion.
 
-A per-server lock serializes installers. Cancellation before promotion leaves no managed state; cancellation during atomic promotion completes the current safe boundary and reports the outcome.
+A per-server lock serializes installers. Cancellation before promotion normally leaves no managed state, but a cleanup that cannot guarantee removal keeps the affected state and reports a bounded residual in the audit record instead of hiding it: when the package-manager process cannot be confirmed stopped, the coordinator keeps its own partial staging directory and the per-server lock, so no retry overlaps that process (`termination_unconfirmed`); when termination is confirmed but removing that directory still fails after its bounded retries, it keeps the directory and releases the lock (`staging_cleanup_failed`); and when releasing the lock itself times out or fails, it reports `lock_release_failed` because the lock may still be held. Cancellation during atomic promotion completes the current safe boundary and reports the outcome.
 
 ## Manual route and process boundary
 

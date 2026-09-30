@@ -79,6 +79,22 @@ describe("/lsp command matrix", () => {
 		},
 	);
 
+	it("reports the retained cleanup residual from the audit snapshot", async () => {
+		const harness = commandHarness({
+			service: {
+				auditSnapshot: vi.fn().mockResolvedValue({
+					records: 3,
+					lastResult: "cancelled",
+					lastResidual: "termination_unconfirmed",
+				}),
+			},
+		});
+		await harness.command("audit", harness.ctx);
+		expect(harness.notify.mock.calls[0]?.[0]).toBe(
+			"LSP audit: 3 recent records; last result cancelled; retained residual termination_unconfirmed.",
+		);
+	});
+
 	it.each([
 		["json", "json"],
 		["print", "print"],

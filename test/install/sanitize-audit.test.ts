@@ -2,7 +2,10 @@ import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { appendAuditRecord } from "../../src/install/audit.js";
+import {
+	appendAuditRecord,
+	type AuditRecord,
+} from "../../src/install/audit.js";
 import {
 	BoundedSanitizedOutput,
 	sanitizeText,
@@ -60,6 +63,29 @@ describe("sanitization", () => {
 });
 
 describe("bounded append-only audit", () => {
+	it("persists a bounded cleanup residual inside the record limit", async () => {
+		const directory = await temporaryDirectory();
+		const path = join(directory, "install.audit.jsonl");
+		await appendAuditRecord(
+			path,
+			{
+				at: "2026-01-01T00:00:00.000Z",
+				serverId: "typescript",
+				revision: "r",
+				phase: "failed",
+				durationMs: 1,
+				result: "cancelled",
+				residual: "termination_unconfirmed",
+			},
+			256,
+		);
+		const record = JSON.parse(
+			(await readFile(path, "utf8")).trim(),
+		) as AuditRecord;
+		expect(record.residual).toBe("termination_unconfirmed");
+		expect((await stat(path)).size).toBeLessThanOrEqual(256);
+	});
+
 	it("serializes concurrent records and keeps each current file bounded", async () => {
 		const directory = await temporaryDirectory();
 		const path = join(directory, "install.audit.jsonl");

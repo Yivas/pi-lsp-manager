@@ -8,6 +8,7 @@ import type {
 	SelectionRole,
 } from "../contracts.js";
 import { loadConfig, type LoadedConfig } from "../config/load.js";
+import { isInstallResidual, type InstallResidual } from "../install/audit.js";
 import { createServerLaunch } from "../install/launch.js";
 import {
 	evaluateInstallPolicy,
@@ -1004,7 +1005,11 @@ export class TrustedOperationService {
 	public async auditSnapshot(
 		ctx: ExtensionContext,
 		signal?: AbortSignal,
-	): Promise<{ records: number; lastResult?: string }> {
+	): Promise<{
+		records: number;
+		lastResult?: string;
+		lastResidual?: InstallResidual;
+	}> {
 		if (signal?.aborted) throw new ToolError("cancelled", "Retry the request.");
 		const loaded = await this.config(ctx, true);
 		const auditPath = join(
@@ -1026,15 +1031,28 @@ export class TrustedOperationService {
 			.filter(Boolean)
 			.slice(-100);
 		let lastResult: string | undefined;
+		let lastResidual: InstallResidual | undefined;
 		for (const line of lines) {
 			try {
-				const value = JSON.parse(line) as { result?: unknown };
+				const value = JSON.parse(line) as {
+					result?: unknown;
+					residual?: unknown;
+				};
 				if (typeof value.result === "string") lastResult = value.result;
+				// The residual belongs to the last record, so a later clean record clears an
+				// obsolete retained-cleanup warning instead of reporting it beside `ready`.
+				lastResidual = isInstallResidual(value.residual)
+					? value.residual
+					: undefined;
 			} catch {
 				// Ignore a partial rotated record without exposing its contents.
 			}
 		}
-		return { records: lines.length, ...(lastResult ? { lastResult } : {}) };
+		return {
+			records: lines.length,
+			...(lastResult ? { lastResult } : {}),
+			...(lastResidual ? { lastResidual } : {}),
+		};
 	}
 
 	public async read<T>(

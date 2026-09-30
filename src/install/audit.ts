@@ -1,6 +1,25 @@
 import { appendFile, lstat, mkdir, rename, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
+/**
+ * Cleanup states reported instead of hiding managed state that was kept. They stay a
+ * bounded enum so no path, secret, or process detail reaches the persisted record.
+ */
+const INSTALL_RESIDUALS = [
+	"termination_unconfirmed",
+	"staging_cleanup_failed",
+	"lock_release_failed",
+] as const;
+
+export type InstallResidual = (typeof INSTALL_RESIDUALS)[number];
+
+export function isInstallResidual(value: unknown): value is InstallResidual {
+	return (
+		typeof value === "string" &&
+		(INSTALL_RESIDUALS as readonly string[]).includes(value)
+	);
+}
+
 export interface AuditRecord {
 	at: string;
 	serverId: string;
@@ -8,6 +27,8 @@ export interface AuditRecord {
 	phase: string;
 	durationMs: number;
 	result: "ready" | "failed" | "cancelled" | "timed_out";
+	/** Present only when cleanup could not guarantee that managed state was removed. */
+	residual?: InstallResidual;
 }
 
 const pendingByPath = new Map<string, Promise<void>>();

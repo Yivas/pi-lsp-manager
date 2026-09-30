@@ -568,7 +568,7 @@ describe("semantic tools against the owned stdio fake LSP", () => {
 				packageManagerStarts += 1;
 				return {
 					completed: Promise.resolve({ exitCode: 0, stdout: "", stderr: "" }),
-					terminate: async () => undefined,
+					terminate: async () => ({ confirmed: true }),
 				};
 			},
 		};

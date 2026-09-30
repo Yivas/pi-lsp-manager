@@ -1,9 +1,18 @@
-import { access, mkdir, mkdtemp, readFile, rename, rm } from "node:fs/promises";
+import {
+	access,
+	mkdir,
+	mkdtemp,
+	readFile,
+	rename,
+	rm,
+	writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createDefaultConfig } from "../../src/config/load.js";
 import type { EffectiveConfig } from "../../src/contracts.js";
+import type { AuditRecord } from "../../src/install/audit.js";
 import {
 	InstallCoordinator,
 	type CoordinatorDependencies,
@@ -69,7 +78,7 @@ class CountingPackageManager implements PackageManager {
 		this.starts += 1;
 		return {
 			completed: Promise.resolve({ exitCode: 0, stdout: "", stderr: "" }),
-			terminate: async () => undefined,
+			terminate: async () => ({ confirmed: true }),
 		};
 	}
 }
@@ -302,6 +311,7 @@ describe("deterministic cancellation matrix", () => {
 					terminate: async () => {
 						terminationStarted.resolve();
 						await termination.promise;
+						return { confirmed: true };
 					},
 				};
 			},
@@ -323,6 +333,591 @@ describe("deterministic cancellation matrix", () => {
 		expect(shutdownFinished).toBe(true);
 		expect(await pending).toEqual({ status: "failed", reason: "cancelled" });
 		await assertNoOwnedArtifacts(root, allowedDecision().recipe.revision);
+	});
+});
+
+describe("aborted cleanup lifecycle", () => {
+	const recipe = allowedDecision().recipe;
+
+	function stagingPath(root: string): string {
+		return join(
+			root,
+			"servers",
+			recipe.serverId,
+			`${recipe.revision}.partial-matrix-nonce`,
+		);
+	}
+
+	function lockPath(root: string): string {
+		return join(root, "locks", `typescript-${recipe.revision}.lock`);
+	}
+
+	it("removes staging only after the adapter confirms termination, with a bounded retry budget", async () => {
+		const root = await temporaryDirectory();
+		const staging = stagingPath(root);
+		const termination = deferred<void>();
+		const managerStarted = deferred<void>();
+		let removalOptions:
+			| { maxRetries?: number; retryDelay?: number }
+			| undefined;
+		let removalHappenedAfterTermination = false;
+		let terminationSettled = false;
+		const manager: PackageManager = {
+			start: async () => {
+				managerStarted.resolve();
+				return {
+					completed: new Promise(() => undefined),
+					terminate: async () => {
+						await termination.promise;
+						terminationSettled = true;
+						return { confirmed: true };
+					},
+				};
+			},
+		};
+		const instance = coordinator(manager, {
+			installTimeoutMs: 10_000,
+			fileSystem: {
+				mkdir,
+				rename,
+				rm: async (path, options) => {
+					if (path === staging) {
+						removalOptions = options;
+						removalHappenedAfterTermination = terminationSettled;
+					}
+					await rm(path, options);
+				},
+			},
+		});
+		const pending = instance.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+		});
+		await managerStarted.promise;
+		const shutdown = instance.shutdown();
+		// The termination promise is still held, so no removal may have started.
+		await Promise.resolve();
+		expect(removalOptions).toBeUndefined();
+		termination.resolve();
+		await shutdown;
+		expect(await pending).toEqual({ status: "failed", reason: "cancelled" });
+		expect(removalHappenedAfterTermination).toBe(true);
+		expect(removalOptions).toMatchObject({ recursive: true, force: true });
+		expect(removalOptions?.maxRetries ?? 0).toBeGreaterThanOrEqual(1);
+		expect(removalOptions?.retryDelay ?? 0).toBeGreaterThan(0);
+		await assertNoOwnedArtifacts(root, recipe.revision);
+	});
+
+	it("keeps its own staging and retains the lock when termination is not confirmed", async () => {
+		const root = await temporaryDirectory();
+		const staging = stagingPath(root);
+		const managerStarted = deferred<void>();
+		let removals = 0;
+		const records: AuditRecord[] = [];
+		const manager: PackageManager = {
+			start: async () => {
+				managerStarted.resolve();
+				return {
+					completed: new Promise(() => undefined),
+					terminate: async () => ({ confirmed: false }),
+				};
+			},
+		};
+		const instance = coordinator(manager, {
+			installTimeoutMs: 10_000,
+			audit: async (_path, record) => {
+				records.push(record);
+			},
+			fileSystem: {
+				mkdir,
+				rename,
+				rm: async (path, options) => {
+					removals += 1;
+					await rm(path, options);
+				},
+			},
+		});
+		const pending = instance.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+		});
+		await managerStarted.promise;
+		await instance.shutdown();
+		expect(await pending).toEqual({ status: "failed", reason: "cancelled" });
+		expect(removals).toBe(0);
+		await expect(access(staging)).resolves.toBeUndefined();
+		await expect(access(lockPath(root))).resolves.toBeUndefined();
+		expect(records).toEqual([
+			expect.objectContaining({
+				result: "cancelled",
+				residual: "termination_unconfirmed",
+			}),
+		]);
+	});
+
+	it("bounds the termination wait and reports the residual for a non-cooperative adapter", async () => {
+		const root = await temporaryDirectory();
+		const managerStarted = deferred<void>();
+		const records: AuditRecord[] = [];
+		const manager: PackageManager = {
+			start: async () => {
+				managerStarted.resolve();
+				return {
+					completed: new Promise(() => undefined),
+					terminate: () => new Promise(() => undefined),
+				};
+			},
+		};
+		const instance = coordinator(manager, {
+			installTimeoutMs: 10_000,
+			terminationBudgetMs: 40,
+			audit: async (_path, record) => {
+				records.push(record);
+			},
+		});
+		const pending = instance.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+		});
+		await managerStarted.promise;
+		const startedAt = Date.now();
+		await instance.shutdown();
+		expect(Date.now() - startedAt).toBeLessThan(2_000);
+		expect(await pending).toEqual({ status: "failed", reason: "cancelled" });
+		expect(records).toEqual([
+			expect.objectContaining({ residual: "termination_unconfirmed" }),
+		]);
+	});
+
+	it("keeps the partial and reports a removal residual after a persistent failure", async () => {
+		const root = await temporaryDirectory();
+		const staging = stagingPath(root);
+		const managerStarted = deferred<void>();
+		const records: AuditRecord[] = [];
+		const manager: PackageManager = {
+			start: async () => {
+				managerStarted.resolve();
+				return {
+					completed: new Promise(() => undefined),
+					terminate: async () => ({ confirmed: true }),
+				};
+			},
+		};
+		const instance = coordinator(manager, {
+			installTimeoutMs: 10_000,
+			audit: async (_path, record) => {
+				records.push(record);
+			},
+			fileSystem: {
+				mkdir,
+				rename,
+				rm: async (path, options) => {
+					if (path.includes(".partial-"))
+						throw Object.assign(new Error("directory is busy"), {
+							code: "EBUSY",
+						});
+					await rm(path, options);
+				},
+			},
+		});
+		const pending = instance.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+		});
+		await managerStarted.promise;
+		await instance.shutdown();
+		expect(await pending).toEqual({ status: "failed", reason: "cancelled" });
+		await expect(access(staging)).resolves.toBeUndefined();
+		// Termination was confirmed, so the lock is not retained for a live process.
+		await expect(access(lockPath(root))).rejects.toThrow();
+		expect(records).toEqual([
+			expect.objectContaining({ residual: "staging_cleanup_failed" }),
+		]);
+	});
+
+	it("does not touch a foreign partial or a quarantine artifact", async () => {
+		const root = await temporaryDirectory();
+		const serverRoot = join(root, "servers", recipe.serverId);
+		const foreignPartial = join(
+			root,
+			"servers",
+			recipe.serverId,
+			`${recipe.revision}.partial-foreign`,
+		);
+		const quarantine = join(serverRoot, `${recipe.revision}.invalid-foreign`);
+		await mkdir(foreignPartial, { recursive: true });
+		await mkdir(quarantine, { recursive: true });
+		const result = await coordinator(new CountingPackageManager()).install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+		});
+		expect(result.status, result.reason).toBe("ready");
+		await expect(access(foreignPartial)).resolves.toBeUndefined();
+		await expect(access(quarantine)).resolves.toBeUndefined();
+	});
+
+	it("removes only its own staging on cancel and keeps a foreign partial and a quarantine artifact", async () => {
+		const root = await temporaryDirectory();
+		const serverRoot = join(root, "servers", recipe.serverId);
+		const staging = stagingPath(root);
+		const foreignPartial = join(
+			serverRoot,
+			`${recipe.revision}.partial-foreign`,
+		);
+		const quarantine = join(serverRoot, `${recipe.revision}.invalid-foreign`);
+		await mkdir(foreignPartial, { recursive: true });
+		await writeFile(join(foreignPartial, "keep.txt"), "foreign");
+		await mkdir(quarantine, { recursive: true });
+		const managerStarted = deferred<void>();
+		const removed: string[] = [];
+		const manager: PackageManager = {
+			start: async () => {
+				managerStarted.resolve();
+				return {
+					completed: new Promise(() => undefined),
+					terminate: async () => ({ confirmed: true }),
+				};
+			},
+		};
+		const instance = coordinator(manager, {
+			installTimeoutMs: 10_000,
+			fileSystem: {
+				mkdir,
+				rename,
+				rm: async (path, options) => {
+					removed.push(path);
+					await rm(path, options);
+				},
+			},
+		});
+		const pending = instance.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+		});
+		await managerStarted.promise;
+		await instance.shutdown();
+		expect(await pending).toEqual({ status: "failed", reason: "cancelled" });
+		// The cleanup branch that does remove ran, and it touched nothing else.
+		expect(removed).toEqual([staging]);
+		await expect(access(staging)).rejects.toThrow();
+		await expect(
+			readFile(join(foreignPartial, "keep.txt"), "utf8"),
+		).resolves.toBe("foreign");
+		await expect(access(quarantine)).resolves.toBeUndefined();
+	});
+
+	it("resolves the cancelled caller while the termination proof is still open", async () => {
+		const root = await temporaryDirectory();
+		const managerStarted = deferred<void>();
+		let terminations = 0;
+		const records: AuditRecord[] = [];
+		const manager: PackageManager = {
+			start: async () => {
+				managerStarted.resolve();
+				return {
+					completed: new Promise(() => undefined),
+					terminate: () => {
+						terminations += 1;
+						return new Promise(() => undefined);
+					},
+				};
+			},
+		};
+		const controller = new AbortController();
+		const instance = coordinator(manager, {
+			installTimeoutMs: 10_000,
+			terminationBudgetMs: 40,
+			audit: async (_path, record) => {
+				records.push(record);
+			},
+		});
+		const pending = instance.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+			signal: controller.signal,
+		});
+		await managerStarted.promise;
+		controller.abort();
+		// The caller settles on abort, while the termination proof is still open, so it never
+		// waits for the termination wait or the cleanup that follows it.
+		await expect(pending).resolves.toEqual({
+			status: "failed",
+			reason: "cancelled",
+		});
+		expect(records).toEqual([]);
+		await instance.shutdown();
+		expect(terminations).toBe(1);
+		expect(records).toEqual([
+			expect.objectContaining({ residual: "termination_unconfirmed" }),
+		]);
+	});
+
+	it("reports a lock_release_failed residual when the lock release rejects", async () => {
+		const root = await temporaryDirectory();
+		const managerStarted = deferred<void>();
+		const records: AuditRecord[] = [];
+		const manager: PackageManager = {
+			start: async () => {
+				managerStarted.resolve();
+				return {
+					completed: new Promise(() => undefined),
+					terminate: async () => ({ confirmed: true }),
+				};
+			},
+		};
+		const instance = coordinator(manager, {
+			installTimeoutMs: 10_000,
+			audit: async (_path, record) => {
+				records.push(record);
+			},
+			lockFileSystem: {
+				// The exclusive open and write succeed, so the release read is the failing step.
+				open: async () => ({
+					writeFile: async () => undefined,
+					close: async () => undefined,
+				}),
+				readFile: () => {
+					throw new Error("lock read failed");
+				},
+				rename: async () => undefined,
+				link: async () => undefined,
+				rm: async () => undefined,
+			},
+		});
+		const pending = instance.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+		});
+		await managerStarted.promise;
+		await instance.shutdown();
+		expect(await pending).toEqual({ status: "failed", reason: "cancelled" });
+		expect(records).toEqual([
+			expect.objectContaining({ residual: "lock_release_failed" }),
+		]);
+	});
+
+	it("reports a lock_release_failed residual when the lock release exceeds its budget", async () => {
+		const root = await temporaryDirectory();
+		const managerStarted = deferred<void>();
+		const records: AuditRecord[] = [];
+		const manager: PackageManager = {
+			start: async () => {
+				managerStarted.resolve();
+				return {
+					completed: new Promise(() => undefined),
+					terminate: async () => ({ confirmed: true }),
+				};
+			},
+		};
+		const instance = coordinator(manager, {
+			installTimeoutMs: 10_000,
+			releaseBudgetMs: 40,
+			audit: async (_path, record) => {
+				records.push(record);
+			},
+			lockFileSystem: {
+				open: async () => ({
+					writeFile: async () => undefined,
+					close: async () => undefined,
+				}),
+				readFile: () => new Promise<string>(() => undefined),
+				rename: async () => undefined,
+				link: async () => undefined,
+				rm: async () => undefined,
+			},
+		});
+		const pending = instance.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+		});
+		await managerStarted.promise;
+		await instance.shutdown();
+		expect(await pending).toEqual({ status: "failed", reason: "cancelled" });
+		expect(records).toEqual([
+			expect.objectContaining({ residual: "lock_release_failed" }),
+		]);
+	});
+
+	it("reports the retained lock over a retained partial when both cleanups fail", async () => {
+		const root = await temporaryDirectory();
+		const managerStarted = deferred<void>();
+		const records: AuditRecord[] = [];
+		const manager: PackageManager = {
+			start: async () => {
+				managerStarted.resolve();
+				return {
+					completed: new Promise(() => undefined),
+					terminate: async () => ({ confirmed: true }),
+				};
+			},
+		};
+		const instance = coordinator(manager, {
+			installTimeoutMs: 10_000,
+			audit: async (_path, record) => {
+				records.push(record);
+			},
+			fileSystem: {
+				mkdir,
+				rename,
+				rm: async (path, options) => {
+					if (path.includes(".partial-"))
+						throw Object.assign(new Error("directory is busy"), {
+							code: "EBUSY",
+						});
+					await rm(path, options);
+				},
+			},
+			lockFileSystem: {
+				open: async () => ({
+					writeFile: async () => undefined,
+					close: async () => undefined,
+				}),
+				readFile: () => {
+					throw new Error("lock read failed");
+				},
+				rename: async () => undefined,
+				link: async () => undefined,
+				rm: async () => undefined,
+			},
+		});
+		const pending = instance.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+		});
+		await managerStarted.promise;
+		await instance.shutdown();
+		expect(await pending).toEqual({ status: "failed", reason: "cancelled" });
+		expect(records).toEqual([
+			expect.objectContaining({ residual: "lock_release_failed" }),
+		]);
+	});
+
+	it("does not cancel the surviving caller when another waiter aborts", async () => {
+		const root = await temporaryDirectory();
+		const completion = deferred<{
+			exitCode: number;
+			stdout: string;
+			stderr: string;
+		}>();
+		const managerStarted = deferred<void>();
+		let terminateCalls = 0;
+		const manager: PackageManager = {
+			start: async () => {
+				managerStarted.resolve();
+				return {
+					completed: completion.promise,
+					terminate: async () => {
+						terminateCalls += 1;
+						return { confirmed: true };
+					},
+				};
+			},
+		};
+		const instance = coordinator(manager, { installTimeoutMs: 10_000 });
+		const survivor = instance.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+		});
+		await managerStarted.promise;
+		const aborter = new AbortController();
+		const cancelled = instance.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+			signal: aborter.signal,
+		});
+		aborter.abort();
+		expect(await cancelled).toEqual({ status: "failed", reason: "cancelled" });
+		completion.resolve({ exitCode: 0, stdout: "", stderr: "" });
+		expect((await survivor).status).toBe("ready");
+		expect(terminateCalls).toBe(0);
+		await expect(
+			access(join(root, "servers", recipe.serverId, recipe.revision)),
+		).resolves.toBeUndefined();
+	});
+
+	it("terminates a launch handle that resolves after the abort and never promotes it", async () => {
+		const root = await temporaryDirectory();
+		const startGate = deferred<void>();
+		const started = deferred<void>();
+		let terminateCalls = 0;
+		const records: AuditRecord[] = [];
+		const manager: PackageManager = {
+			start: () => {
+				started.resolve();
+				return startGate.promise.then(() => ({
+					completed: new Promise<{
+						exitCode: number;
+						stdout: string;
+						stderr: string;
+					}>(() => undefined),
+					terminate: async () => {
+						terminateCalls += 1;
+						return { confirmed: true };
+					},
+				}));
+			},
+		};
+		const controller = new AbortController();
+		const instance = coordinator(manager, {
+			installTimeoutMs: 10_000,
+			audit: async (_path, record) => {
+				records.push(record);
+			},
+		});
+		const pending = instance.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+			signal: controller.signal,
+		});
+		await started.promise;
+		controller.abort();
+		expect(await pending).toEqual({ status: "failed", reason: "cancelled" });
+		const shutdown = instance.shutdown();
+		startGate.resolve();
+		await shutdown;
+		expect(terminateCalls).toBe(1);
+		await expect(
+			access(join(root, "servers", recipe.serverId, recipe.revision)),
+		).rejects.toThrow();
+		expect(records.some((record) => record.residual !== undefined)).toBe(false);
+	});
+
+	it("makes a retry wait on the retained lock instead of overlapping the unconfirmed process", async () => {
+		const root = await temporaryDirectory();
+		const managerStarted = deferred<void>();
+		let starts = 0;
+		const manager: PackageManager = {
+			start: async () => {
+				starts += 1;
+				managerStarted.resolve();
+				return {
+					completed: new Promise(() => undefined),
+					terminate: async () => ({ confirmed: false }),
+				};
+			},
+		};
+		const first = coordinator(manager, { installTimeoutMs: 10_000 });
+		const pending = first.install({
+			decision: allowedDecision(),
+			managedStatePath: root,
+		});
+		await managerStarted.promise;
+		await first.shutdown();
+		expect(await pending).toEqual({ status: "failed", reason: "cancelled" });
+		const retryPhases: string[] = [];
+		const retry = coordinator(new CountingPackageManager(), {
+			installTimeoutMs: 200,
+		});
+		expect(
+			await retry.install({
+				decision: allowedDecision(),
+				managedStatePath: root,
+				onPhase: (phase) => retryPhases.push(phase),
+			}),
+		).toMatchObject({ reason: "timed_out" });
+		expect(retryPhases.at(0)).toBe("waiting-lock");
+		expect(starts).toBe(1);
+		await expect(access(lockPath(root))).resolves.toBeUndefined();
 	});
 });
 
