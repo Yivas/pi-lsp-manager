@@ -271,6 +271,11 @@ export function buildPackageManagerEnvironment(
 	result.USERPROFILE = home;
 	result.TEMP = temp;
 	result.TMP = temp;
+	// npm 11 enables Node's module compile cache under `os.tmpdir()` (TEMP/TMP,
+	// here the staging tmp). A deep staging path on Windows pushes that cache path
+	// past the OS limit and cache initialization spins in CPU without output. Set
+	// the disable flag explicitly so the managed run never inherits a host value.
+	result.NODE_DISABLE_COMPILE_CACHE = "1";
 	result.npm_config_userconfig = join(stagingPath, "npmrc");
 	result.npm_config_globalconfig = join(stagingPath, "global-npmrc");
 	result.npm_config_cache = join(stagingPath, "cache");

@@ -152,9 +152,11 @@ describe("controlled npm inputs", () => {
 		expect(launch.env).toMatchObject({
 			HOME: join(staging, "home"),
 			npm_config_cache: join(staging, "cache"),
+			NODE_DISABLE_COMPILE_CACHE: "1",
 			HTTP_PROXY: "http://user:secret@proxy.invalid",
 		});
 		expect(launch.env.NODE_OPTIONS).toBeUndefined();
+		expect(launch.env.NODE_COMPILE_CACHE).toBeUndefined();
 		expect(launch.env.npm_config_registry).toBeUndefined();
 		expect(await readFile(join(staging, "npmrc"), "utf8")).toContain(
 			"ignore-scripts=true",
@@ -197,5 +199,29 @@ describe("controlled npm inputs", () => {
 		expect(
 			createCmdShimLaunch(String.raw`C:\safe\npm.cmd`, ["a&b"], "cmd.exe"),
 		).toBeUndefined();
+	});
+
+	it("disables the Node compile cache on every platform and drops inherited Node flags", () => {
+		const staging = join(tmpdir(), "pi-lsp-manager-managed");
+		const base = {
+			PATH: "/safe/bin",
+			NODE_OPTIONS: "--require hostile",
+			NODE_COMPILE_CACHE: String.raw`C:\hostile\node-compile-cache`,
+			NODE_DISABLE_COMPILE_CACHE: "0",
+		};
+		for (const platform of [
+			"aix",
+			"darwin",
+			"freebsd",
+			"linux",
+			"openbsd",
+			"sunos",
+			"win32",
+		] as const) {
+			const env = buildPackageManagerEnvironment(base, platform, staging);
+			expect(env.NODE_DISABLE_COMPILE_CACHE, platform).toBe("1");
+			expect(env.NODE_COMPILE_CACHE, platform).toBeUndefined();
+			expect(env.NODE_OPTIONS, platform).toBeUndefined();
+		}
 	});
 });
