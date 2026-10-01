@@ -68,6 +68,20 @@ The Vue and Tailwind coexistence fixture diagnoses one `.vue` file with both ser
 RUN_REAL_VUE=1 RUN_REAL_TAILWIND=1 VUE_CLI=<vue-language-server.js> TAILWIND_CLI=<tailwindcss-language-server> npm test -- test/real-servers/vue-tailwind-coexistence.test.ts
 ```
 
+The Python installation gate (`test/real-servers/python-install-gate.test.ts`) is an opt-in, internal test for the inactive `ty` and `ruff` candidates. It makes no compatibility claim and is not wired into the catalog: the shipped registry answers `recipe_missing`, the gate injects an explicitly named allowed decision only to exercise the production adapter, coordinator, package manager and verifier, and the committed binaries are probed with `--version`, never started as a language server. It needs a fresh empty directory outside the checkout, an output path inside that directory, and an absolute, trusted global Python (>= 3.8) whose pip supports `--require-hashes`, `--only-binary` and `--target`; the key is documented in [Configuration](docs/configuration.md):
+
+```bash
+gate_root=$(mktemp -d "${TMPDIR:-/tmp}/python-install-gate.XXXXXX")
+PYTHON_INSTALL_GATE_ROOT="$gate_root" \
+  PYTHON_INSTALL_GATE_OUTPUT="$gate_root/handoff.json" \
+  PYTHON_GATE_INTERPRETER=<absolute-python> \
+  RUN_REAL_PYTHON_INSTALL=1 \
+  npm test -- test/real-servers/python-install-gate.test.ts
+rm -rf -- "$gate_root"
+```
+
+The gate owns its root exclusively: it refuses a non-empty or symlinked root, trusts the interpreter before writing any marker, and resets only its own named scopes after re-verifying that marker. `handoff.json` is a read-only record of the committed paths and measured versions; the destructive gate is never rerun against a retained root, and every run needs a fresh unique directory. The interpreter is provisioned only for the ephemeral CI test host; production never installs Python and uses the trusted global key with its manual fallback.
+
 Document the exact server, language, Pi, Node.js, operating-system, and architecture versions for any compatibility claim. Do not describe a catalog candidate or detected executable as supported without a passing real fixture and an exact compatibility row.
 
 ## License and conduct
