@@ -72,6 +72,7 @@ The Python installation gate (`test/real-servers/python-install-gate.test.ts`) i
 
 ```bash
 gate_root=$(mktemp -d "${TMPDIR:-/tmp}/python-install-gate.XXXXXX")
+gate_root=$(node --input-type=module -e 'import { realpath } from "node:fs/promises"; process.stdout.write(await realpath(process.argv[1]));' "$gate_root")
 PYTHON_INSTALL_GATE_ROOT="$gate_root" \
   PYTHON_INSTALL_GATE_OUTPUT="$gate_root/handoff.json" \
   PYTHON_GATE_INTERPRETER=<absolute-python> \
@@ -79,6 +80,8 @@ PYTHON_INSTALL_GATE_ROOT="$gate_root" \
   npm test -- test/real-servers/python-install-gate.test.ts
 rm -rf -- "$gate_root"
 ```
+
+The second line canonicalizes the temporary root with Node's native `realpath` before the output path is derived. The gate compares the requested output against the canonical root it claims, so a raw temporary path that is an 8.3 short name on Windows or the `/var` alias of `/private/var` on macOS would be refused as an escape; the recorded root and the cleanup stay on the same caller-owned directory.
 
 The gate owns its root exclusively: it refuses a non-empty or symlinked root, trusts the interpreter before writing any marker, and resets only its own named scopes after re-verifying that marker. `handoff.json` is a read-only record of the committed paths and measured versions; the destructive gate is never rerun against a retained root, and every run needs a fresh unique directory. The interpreter is provisioned only for the ephemeral CI test host; production never installs Python and uses the trusted global key with its manual fallback.
 

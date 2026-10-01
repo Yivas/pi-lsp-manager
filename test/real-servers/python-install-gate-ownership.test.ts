@@ -333,8 +333,12 @@ describe("Python installation gate ownership", () => {
 		expect(() => ownGateOutput(root, "relative/handoff.json")).toThrow(
 			/absolute path/,
 		);
-		expect(ownGateOutput(root, join(root, "handoff.json"))).toBe(
-			join(await realpath(root), "handoff.json"),
+		// `ownGateOutput` compares lexically, so the caller must pass the canonical root a
+		// claim carries: a raw `tmpdir()` path is the 8.3 short name on Windows and `/var`
+		// on macOS, where no join can equal the canonical path.
+		const canonical = await realpath(root);
+		expect(ownGateOutput(canonical, join(canonical, "handoff.json"))).toBe(
+			join(canonical, "handoff.json"),
 		);
 	});
 
@@ -345,8 +349,10 @@ describe("Python installation gate ownership", () => {
 			owner: owner(),
 		});
 		const manifest = completeManifest(claim);
-		await writeGateManifest(claim, join(root, "handoff.json"), manifest);
-		const text = await readFile(join(root, "handoff.json"), "utf8");
+		// The claim root is canonical, so the owned output is the one joined to `claim.root`;
+		// a raw `tmpdir()` root is its alias and would be refused as an escape.
+		await writeGateManifest(claim, join(claim.root, "handoff.json"), manifest);
+		const text = await readFile(join(claim.root, "handoff.json"), "utf8");
 		expect(
 			parseGateManifest(text, {
 				root: claim.root,

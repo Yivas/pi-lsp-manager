@@ -113,6 +113,12 @@ jobs:
           # exact version provisioned above for this ephemeral test host; production never
           # installs Python and instead requires the trusted global interpreter field.
           gate_root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/python-install-gate.XXXXXX")"
+          # `mktemp` prints the platform's raw path while the gate resolves its claimed root
+          # with Node's native `realpath` and compares the requested output against it. A raw
+          # 8.3 short name on Windows or the `/var` alias on macOS would be refused as an
+          # escape, so canonicalize this caller's own root before deriving the output below
+          # and before recording the exact path the cleanup step removes.
+          gate_root="$(node --input-type=module -e 'import { realpath } from "node:fs/promises"; process.stdout.write(await realpath(process.argv[1]));' "$gate_root")"
           echo "PYTHON_INSTALL_GATE_ROOT=$gate_root" >> "$GITHUB_ENV"
           PYTHON_INSTALL_GATE_ROOT="$gate_root" \
             PYTHON_INSTALL_GATE_OUTPUT="$gate_root/handoff.json" \
