@@ -85,6 +85,17 @@ The second line canonicalizes the temporary root with Node's native `realpath` b
 
 The gate owns its root exclusively: it refuses a non-empty or symlinked root, trusts the interpreter before writing any marker, and resets only its own named scopes after re-verifying that marker. `handoff.json` is a read-only record of the committed paths and measured versions; the destructive gate is never rerun against a retained root, and every run needs a fresh unique directory. The interpreter is provisioned only for the ephemeral CI test host; production never installs Python and uses the trusted global key with its manual fallback.
 
+The Python semantic fixtures consume that read-only handoff and never reinstall either server. Point `PYTHON_INSTALL_GATE_HANDOFF` at the `handoff.json` the gate wrote and run the opt-in fixtures in one invocation:
+
+```bash
+RUN_REAL_TY=1 RUN_REAL_RUFF=1 RUN_REAL_PYTHON_COEXISTENCE=1 PYTHON_INSTALL_GATE_HANDOFF=<handoff.json> \
+  npm test -- test/real-servers/ty-language-server.test.ts test/real-servers/ruff-language-server.test.ts test/real-servers/ty-ruff-coexistence.test.ts
+```
+
+Each fixture re-hashes the committed `ty`/`ruff` executable and re-checks its wheel against the frozen lock before starting the server, and fails closed when the handoff is missing, the manifest is not `complete`, the host is unsupported, or a pinned version (`ty` 0.0.84, `ruff` 0.16.9) does not match. They resolve the server only from the handoff, never from `PATH` or the checkout.
+
+Every server starts with an owned profile and temporary directory and with the minimal environment the production launch leaves: `PATH`, `SystemRoot`, `ComSpec`, `HOME`, `TEMP` and `TMP`, and no host `PATH`, `USERPROFILE`, `APPDATA`, `VIRTUAL_ENV`, `PYTHON*` or `PIP*` value. The fixtures assert that surviving set at the real spawn call, hash the analyzed workspace and the owned root before and after every read-only case, and restore the owned sample files a rename case edits. The initialization options they pass (`untrustedWorkspace`, `experimental.useUv`) are declared, not instrumented: they are not presented as a sandbox. `ty` and `ruff` stay candidates: these fixtures measure semantics and make no compatibility claim, so a green run on a platform without a measured row is not a compatibility row.
+
 Document the exact server, language, Pi, Node.js, operating-system, and architecture versions for any compatibility claim. Do not describe a catalog candidate or detected executable as supported without a passing real fixture and an exact compatibility row.
 
 ## License and conduct

@@ -136,9 +136,35 @@ jobs:
             if (!server || server.phase !== "ready") throw new Error(`gate ${id} is not ready`);
             if (!server.executable.path.startsWith(manifest.root)) throw new Error(`gate ${id} escaped the owned root`);
           }
+          // Sanitized public metadata only: the interpreter versions and the two native
+          // server versions, never a full path, JSON body, environment value or secret.
+          console.log(
+            JSON.stringify({
+              interpreter: {
+                pythonVersion: manifest.interpreter.pythonVersion,
+                pipVersion: manifest.interpreter.pipVersion,
+              },
+              ty: manifest.servers.ty.nativeOutput,
+              ruff: manifest.servers.ruff.nativeOutput,
+            }),
+          );
           console.log("python-install-gate complete: ty,ruff");
           ' "$gate_root/handoff.json"
           echo "PYTHON_INSTALL_GATE_HANDOFF=$gate_root/handoff.json" >> "$GITHUB_ENV"
+      # The semantic fixtures consume the read-only handoff exported above and never
+      # reinstall Ty or Ruff: the installation gate already committed both wheels. Each
+      # fixture re-hashes the committed executable, re-checks its wheel against the frozen
+      # lock and fails closed when the handoff, the host or a version is wrong. One
+      # invocation for the three files: each owns its workspace and profile, installs
+      # nothing and shares no root, so a single startup replaces three. The step budget
+      # covers the worst bounded case (14 cases, at most 45 s each) inside the 30-minute job.
+      - name: Run the real Ty and Ruff semantic fixtures
+        timeout-minutes: 15
+        run: npm test -- test/real-servers/ty-language-server.test.ts test/real-servers/ruff-language-server.test.ts test/real-servers/ty-ruff-coexistence.test.ts
+        env:
+          RUN_REAL_TY: "1"
+          RUN_REAL_RUFF: "1"
+          RUN_REAL_PYTHON_COEXISTENCE: "1"
       - name: Remove the gate installations
         if: always()
         shell: bash
