@@ -13,6 +13,7 @@
 - Multi-file `WorkspaceEdit` rollback now preserves external file changes and deletions and reports recovery artifacts left by cleanup failures.
 - Installation lock waiters retry when a lock is released between exclusive-open failure and the ownership read, instead of requiring manual repair.
 - Package-manager runs now disable Node's module compile cache (`NODE_DISABLE_COMPILE_CACHE=1`), so an `npm ci` under a deep staging path on Windows no longer spins while that cache initializes instead of completing.
+- A request that is already accepted by the transport no longer leaks an unhandled write error when the server disappears before that write reaches it. The caller still receives the existing typed connection failure, and `vscode-jsonrpc` moves from `9.0.2` to `9.0.3`, which stops rethrowing the raw write error the request already reported.
 
 ## 0.2.0 - 2026-09-01
 
