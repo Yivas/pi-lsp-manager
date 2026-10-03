@@ -94,7 +94,13 @@ describe.runIf(runReal)("TypeScript Language Server 5.3.0", () => {
 	let pool: RuntimePool | undefined;
 	afterEach(async () => {
 		await pool?.shutdown();
-		if (directory) await rm(directory, { recursive: true, force: true });
+		if (directory)
+			await rm(directory, {
+				recursive: true,
+				force: true,
+				maxRetries: 10,
+				retryDelay: 50,
+			});
 		pool = undefined;
 		directory = undefined;
 	});
