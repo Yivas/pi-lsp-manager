@@ -1,6 +1,12 @@
 import type { ServerAdmission } from "../contracts.js";
 import pythonWheelLock from "./locks/python-wheels.json" with { type: "json" };
 import vueLockfile from "./locks/vue-3.3.11.json" with { type: "json" };
+import jsonLanguageServerLockfile from "./locks/vscode-langservers-extracted-4.10.0.json" with {
+	type: "json",
+};
+import yamlLockfile from "./locks/yaml-language-server-1.24.0.json" with {
+	type: "json",
+};
 
 export interface PackagePin {
 	name: string;
@@ -22,8 +28,12 @@ export interface NpmInstallRecipe {
 	targets: readonly InstallTarget[];
 	registry: "https://registry.npmjs.org";
 	packages: readonly PackagePin[];
-	executable: "typescript-language-server" | "vue-language-server";
-	expectedVersion: "5.3.0" | "3.3.11";
+	executable:
+		| "typescript-language-server"
+		| "vue-language-server"
+		| "yaml-language-server"
+		| "vscode-json-language-server";
+	expectedVersion: "5.3.0" | "3.3.11" | "1.24.0" | "4.10.0";
 	lockfile?: Readonly<{
 		name: string;
 		version: string;
@@ -283,6 +293,67 @@ export const INACTIVE_PYTHON_RECIPES = deepFreeze<
 		"0.16.9",
 		"Install ruff 0.16.9 manually, set the trusted installer interpreter, then retry.",
 	),
+});
+
+export const INACTIVE_FORMAT_RECIPES = deepFreeze<
+	Record<
+		"vscode-json-language-server" | "yaml-language-server",
+		NpmInstallRecipe
+	>
+>({
+	"vscode-json-language-server": {
+		kind: "npm",
+		serverId: "vscode-json-language-server",
+		revision: "vscode-langservers-extracted-4.10.0_core-js-3.50.0_lock-1",
+		targets: [
+			{ platform: "win32", architecture: "x64" },
+			{ platform: "darwin", architecture: "arm64" },
+			{ platform: "linux", architecture: "x64" },
+		],
+		registry: "https://registry.npmjs.org",
+		packages: [
+			{
+				name: "vscode-langservers-extracted",
+				version: "4.10.0",
+				integrity:
+					"sha512-EFf9uQI4dAKbzMQFjDvVm1xJq1DXAQvBEuEfPGrK/xzfsL5xWTfIuRr90NgfmqwO+IEt6vLZm9EOj6R66xIifg==",
+				license: "MIT",
+				node: "*",
+			},
+		],
+		lockfile: jsonLanguageServerLockfile,
+		executable: "vscode-json-language-server",
+		expectedVersion: "4.10.0",
+		admission: "auto-installable",
+		manualHelp:
+			"Install vscode-langservers-extracted 4.10.0 manually, then retry.",
+	},
+	"yaml-language-server": {
+		kind: "npm",
+		serverId: "yaml-language-server",
+		revision: "yaml-language-server-1.24.0_lock-1",
+		targets: [
+			{ platform: "win32", architecture: "x64" },
+			{ platform: "darwin", architecture: "arm64" },
+			{ platform: "linux", architecture: "x64" },
+		],
+		registry: "https://registry.npmjs.org",
+		packages: [
+			{
+				name: "yaml-language-server",
+				version: "1.24.0",
+				integrity:
+					"sha512-+HGcwu4M7IC+UDhDZScTZR8qsl2MMj/X1E5e83QcWzWn2pctj0fv8HHdrHHcbc1KB3CuRPJ4gc1Nm36D0iCu0g==",
+				license: "MIT",
+				node: "*",
+			},
+		],
+		lockfile: yamlLockfile,
+		executable: "yaml-language-server",
+		expectedVersion: "1.24.0",
+		admission: "auto-installable",
+		manualHelp: "Install YAML Language Server 1.24.0 manually, then retry.",
+	},
 });
 
 /** Selects the single wheel pip receives for a host platform and architecture. */

@@ -3,9 +3,11 @@ import { DEFAULT_SERVERS, validateCatalog } from "../../src/catalog/servers.js";
 import {
 	getRecipe,
 	getRecipeRevision,
+	INACTIVE_FORMAT_RECIPES,
 	INACTIVE_PYTHON_RECIPES,
 	VUE_RECIPE,
 } from "../../src/install/catalog.js";
+import { createControlledNpmFiles } from "../../src/install/launch.js";
 import type { ServerDefinition } from "../../src/contracts.js";
 
 const compatibility = {
@@ -124,6 +126,90 @@ describe("server catalog", () => {
 		]);
 	});
 
+	it("keeps JSON and YAML candidates outside the active recipe registry", () => {
+		const json = DEFAULT_SERVERS.find(
+			(server) => server.id === "vscode-json-language-server",
+		);
+		expect(json).toMatchObject({
+			id: "vscode-json-language-server",
+			extensions: [".json", ".jsonc"],
+			languageIds: ["json", "jsonc"],
+			languageIdByExtension: { ".json": "json", ".jsonc": "jsonc" },
+			route: {
+				command: "vscode-json-language-server",
+				args: ["--stdio"],
+			},
+			priority: 0,
+			autoInstall: false,
+			admission: "candidate",
+			compatibility: [],
+		});
+
+		const yaml = DEFAULT_SERVERS.filter(
+			(server) => server.id === "yaml-language-server",
+		);
+		expect(yaml).toHaveLength(1);
+		expect(yaml[0]).toMatchObject({
+			id: "yaml-language-server",
+			extensions: [".yaml", ".yml"],
+			route: {
+				command: "yaml-language-server",
+				args: ["--stdio"],
+			},
+			admission: "candidate",
+			autoInstall: false,
+			compatibility: [],
+		});
+		for (const id of ["vscode-json-language-server", "yaml-language-server"]) {
+			expect(getRecipe(id), id).toBeUndefined();
+			expect(getRecipeRevision(id), id).toBeUndefined();
+		}
+
+		const jsonRecipe = INACTIVE_FORMAT_RECIPES["vscode-json-language-server"];
+		expect(jsonRecipe).toMatchObject({
+			serverId: "vscode-json-language-server",
+			revision: "vscode-langservers-extracted-4.10.0_core-js-3.50.0_lock-1",
+			packages: [
+				{
+					name: "vscode-langservers-extracted",
+					version: "4.10.0",
+					integrity:
+						"sha512-EFf9uQI4dAKbzMQFjDvVm1xJq1DXAQvBEuEfPGrK/xzfsL5xWTfIuRr90NgfmqwO+IEt6vLZm9EOj6R66xIifg==",
+				},
+			],
+		});
+		expect(getRecipe(jsonRecipe.serverId)).toBeUndefined();
+		expect(getRecipeRevision(jsonRecipe.serverId)).toBeUndefined();
+
+		const yamlRecipe = INACTIVE_FORMAT_RECIPES["yaml-language-server"];
+		expect(yamlRecipe).toMatchObject({
+			serverId: "yaml-language-server",
+			revision: "yaml-language-server-1.24.0_lock-1",
+			packages: [
+				{
+					name: "yaml-language-server",
+					version: "1.24.0",
+					integrity:
+						"sha512-+HGcwu4M7IC+UDhDZScTZR8qsl2MMj/X1E5e83QcWzWn2pctj0fv8HHdrHHcbc1KB3CuRPJ4gc1Nm36D0iCu0g==",
+				},
+			],
+		});
+		const files = createControlledNpmFiles(yamlRecipe);
+		const lock = JSON.parse(files.packageLock) as {
+			packages: Record<
+				string,
+				{ hasInstallScript?: boolean; integrity?: string }
+			>;
+		};
+		expect(Object.keys(lock.packages)).toHaveLength(21);
+		expect(lock.packages["node_modules/yaml-language-server"]).toMatchObject({
+			integrity: yamlRecipe.packages[0]?.integrity,
+		});
+		expect(
+			Object.values(lock.packages).some((entry) => entry.hasInstallScript),
+		).toBe(false);
+	});
+
 	it("contains every planned candidate once without an accidental recipe claim", () => {
 		const ids = DEFAULT_SERVERS.map((server) => server.id);
 		expect(new Set(ids).size).toBe(ids.length);
@@ -148,6 +234,7 @@ describe("server catalog", () => {
 				"jdtls",
 				"kotlin-lsp",
 				"yaml-language-server",
+				"vscode-json-language-server",
 				"lua-language-server",
 				"intelephense",
 				"prisma",

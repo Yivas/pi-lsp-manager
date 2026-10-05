@@ -280,6 +280,22 @@ describe("installation policy", () => {
 	});
 });
 
+describe("inactive format installation policy", () => {
+	it("denies managed installation for JSON and YAML candidates at every origin", () => {
+		for (const serverId of [
+			"vscode-json-language-server",
+			"yaml-language-server",
+		] as const) {
+			for (const origin of ["tool", "post-edit", "explicit"] as const) {
+				expect(
+					evaluateInstallPolicy(input({ serverId, origin })),
+					`${serverId}:${origin}`,
+				).toMatchObject({ allowed: false, reason: "recipe_missing" });
+			}
+		}
+	});
+});
+
 describe("Python installation policy", () => {
 	const recipeLookup = (serverId: string) =>
 		serverId === "ty" ? INACTIVE_PYTHON_RECIPES.ty : getRecipe(serverId);

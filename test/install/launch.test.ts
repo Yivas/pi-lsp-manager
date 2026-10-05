@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	getRecipe,
+	INACTIVE_FORMAT_RECIPES,
 	VUE_RECIPE,
 	type InstallRecipe,
 } from "../../src/install/catalog.js";
@@ -34,6 +35,8 @@ afterEach(async () => {
 const recipe = getRecipe("typescript");
 if (!recipe || recipe.kind !== "npm")
 	throw new Error("TypeScript recipe is required.");
+
+const jsonRecipe = INACTIVE_FORMAT_RECIPES["vscode-json-language-server"];
 
 describe("controlled npm inputs", () => {
 	it("generates a complete immutable direct-dependency lock with exact registry tarballs and SRI", () => {
@@ -115,6 +118,106 @@ describe("controlled npm inputs", () => {
 			tamper(lockfile.packages);
 			expect(() =>
 				createControlledNpmFiles({ ...VUE_RECIPE, lockfile } as InstallRecipe),
+			).toThrow();
+		}
+	});
+
+	it("accepts the exact JSON core-js script pin while retaining npm script suppression", () => {
+		const files = createControlledNpmFiles(jsonRecipe);
+		const lock = JSON.parse(files.packageLock) as {
+			packages: Record<
+				string,
+				{ version?: string; integrity?: string; hasInstallScript?: boolean }
+			>;
+		};
+		expect(Object.keys(lock.packages)).toHaveLength(33);
+		expect(lock.packages["node_modules/core-js"]).toEqual(
+			expect.objectContaining({
+				version: "3.50.0",
+				integrity:
+					"sha512-BRWgOLKkFeCgRudR6zrs8p9XJZcE14grzKMMssoYrk6krtuEZ7MTKPIY5RzOnqsEKIR9kst7wNzphttraT+Yqw==",
+				hasInstallScript: true,
+			}),
+		);
+		expect(
+			Object.entries(lock.packages)
+				.filter(([, entry]) => entry.hasInstallScript === true)
+				.map(([path]) => path),
+		).toEqual(["node_modules/core-js"]);
+		expect(files.userConfig).toContain("ignore-scripts=true");
+		expect(files.globalConfig).toContain("ignore-scripts=true");
+		const launch = createPackageManagerLaunch(
+			jsonRecipe,
+			"/managed/json-staging",
+			"/safe/npm",
+			{ PATH: "/safe/bin" },
+			"linux",
+		);
+		expect(launch.args).toContain("ci");
+		expect(launch.args).toContain("--ignore-scripts");
+		expect(validateControlledNpmFiles(jsonRecipe, files)).toBe(true);
+	});
+
+	it.each([
+		[
+			"a changed core-js version",
+			(packages: Record<string, Record<string, unknown>>) => {
+				const entry = packages["node_modules/core-js"];
+				if (!entry) throw new Error("Missing core-js lock entry.");
+				entry.version = "3.50.1";
+			},
+		],
+		[
+			"a changed core-js integrity",
+			(packages: Record<string, Record<string, unknown>>) => {
+				const entry = packages["node_modules/core-js"];
+				if (!entry) throw new Error("Missing core-js lock entry.");
+				entry.integrity = "sha512-tampered";
+			},
+		],
+		[
+			"the core-js pin resolved from a different tarball",
+			(packages: Record<string, Record<string, unknown>>) => {
+				const entry = packages["node_modules/core-js"];
+				if (!entry) throw new Error("Missing core-js lock entry.");
+				entry.resolved = "https://registry.npmjs.org/other/-/other-3.50.0.tgz";
+			},
+		],
+		[
+			"the same script flag under a different package path",
+			(packages: Record<string, Record<string, unknown>>) => {
+				const entry = packages["node_modules/core-js"];
+				if (!entry) throw new Error("Missing core-js lock entry.");
+				packages["node_modules/unrelated/node_modules/core-js"] = {
+					...entry,
+				};
+			},
+		],
+		[
+			"an install script on another package",
+			(packages: Record<string, Record<string, unknown>>) => {
+				const entry = packages["node_modules/regenerator-runtime"];
+				if (!entry) throw new Error("Missing runtime lock entry.");
+				entry.hasInstallScript = true;
+			},
+		],
+	] as const)("rejects %s", (_name, tamper) => {
+		const lockfile = JSON.parse(JSON.stringify(jsonRecipe.lockfile)) as {
+			packages: Record<string, Record<string, unknown>>;
+		};
+		tamper(lockfile.packages);
+		expect(() =>
+			createControlledNpmFiles({ ...jsonRecipe, lockfile } as InstallRecipe),
+		).toThrow();
+	});
+
+	it("rejects the JSON core-js exception for a different recipe identity", () => {
+		for (const changedRecipe of [
+			{ ...jsonRecipe, serverId: "other-server" },
+			{ ...jsonRecipe, revision: `${jsonRecipe.revision}-changed` },
+		]) {
+			expect(() =>
+				createControlledNpmFiles(changedRecipe as InstallRecipe),
 			).toThrow();
 		}
 	});

@@ -56,6 +56,24 @@ function packageTarballUrl(
 	return `${recipe.registry}/${escapedName}/-/${filename}`;
 }
 
+// This exception permits one lock entry only; managed npm still uses --ignore-scripts.
+const APPROVED_JSON_CORE_JS = {
+	serverId: "vscode-json-language-server",
+	revision: "vscode-langservers-extracted-4.10.0_core-js-3.50.0_lock-1",
+	executable: "vscode-json-language-server",
+	expectedVersion: "4.10.0",
+	rootPackage: {
+		name: "vscode-langservers-extracted",
+		version: "4.10.0",
+		integrity:
+			"sha512-EFf9uQI4dAKbzMQFjDvVm1xJq1DXAQvBEuEfPGrK/xzfsL5xWTfIuRr90NgfmqwO+IEt6vLZm9EOj6R66xIifg==",
+	},
+	path: "node_modules/core-js",
+	version: "3.50.0",
+	integrity:
+		"sha512-BRWgOLKkFeCgRudR6zrs8p9XJZcE14grzKMMssoYrk6krtuEZ7MTKPIY5RzOnqsEKIR9kst7wNzphttraT+Yqw==",
+} as const;
+
 function lockedNpmPackages(
 	recipe: NpmInstallRecipe,
 	dependencies: Record<string, string>,
@@ -92,6 +110,25 @@ function lockedNpmPackages(
 			hasInstallScript?: unknown;
 			link?: unknown;
 		} | null;
+		const rootPin = recipe.packages[0];
+		const approvedJsonCoreJsScript =
+			!!entry &&
+			recipe.serverId === APPROVED_JSON_CORE_JS.serverId &&
+			recipe.revision === APPROVED_JSON_CORE_JS.revision &&
+			recipe.executable === APPROVED_JSON_CORE_JS.executable &&
+			recipe.expectedVersion === APPROVED_JSON_CORE_JS.expectedVersion &&
+			recipe.registry === "https://registry.npmjs.org" &&
+			recipe.packages.length === 1 &&
+			rootPin?.name === APPROVED_JSON_CORE_JS.rootPackage.name &&
+			rootPin.version === APPROVED_JSON_CORE_JS.rootPackage.version &&
+			rootPin.integrity === APPROVED_JSON_CORE_JS.rootPackage.integrity &&
+			rootPin.license === "MIT" &&
+			rootPin.node === "*" &&
+			path === APPROVED_JSON_CORE_JS.path &&
+			entry.version === APPROVED_JSON_CORE_JS.version &&
+			entry.integrity === APPROVED_JSON_CORE_JS.integrity &&
+			entry.resolved ===
+				packageTarballUrl(recipe, "core-js", APPROVED_JSON_CORE_JS.version);
 		if (
 			!path.startsWith("node_modules/") ||
 			path
@@ -105,7 +142,7 @@ function lockedNpmPackages(
 			typeof entry.license !== "string" ||
 			!entry.license ||
 			typeof entry.resolved !== "string" ||
-			entry.hasInstallScript === true ||
+			(entry.hasInstallScript === true && !approvedJsonCoreJsScript) ||
 			entry.link === true
 		)
 			throw new Error("Internal npm lockfile contains an unpinned package.");
