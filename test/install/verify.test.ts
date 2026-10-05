@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
 	getRecipe,
+	INACTIVE_FORMAT_RECIPES,
 	INACTIVE_PYTHON_RECIPES,
 	VUE_RECIPE,
 } from "../../src/install/catalog.js";
@@ -198,6 +199,216 @@ describe("production installation verifier", () => {
 				async () => ({ path: "/managed/bin", version: "0.0.0" }),
 			),
 		).toBeUndefined();
+	});
+});
+
+const JSON_RECIPE = INACTIVE_FORMAT_RECIPES["vscode-json-language-server"];
+
+// Original bytes, not the upstream entry. Any content that is not the pinned artifact must
+// fail the digest guard; the upstream file is deliberately absent from this suite.
+const DUMMY_ENTRY = "#!/usr/bin/env node\n";
+
+interface JsonPackageOverrides {
+	version?: string | undefined;
+	binPath?: string | undefined;
+	entry?: string | undefined;
+}
+
+/** Builds a JSON installation whose `.bin` entry points at the pinned path. */
+async function installJsonPackage(
+	root: string,
+	platform: NodeJS.Platform,
+	overrides: JsonPackageOverrides = {},
+	binTarget?: string,
+): Promise<string> {
+	const packageRoot = join(
+		root,
+		"node_modules",
+		"vscode-langservers-extracted",
+	);
+	await mkdir(join(packageRoot, "bin"), { recursive: true });
+	await writeFile(
+		join(packageRoot, "package.json"),
+		JSON.stringify({
+			name: "vscode-langservers-extracted",
+			version: overrides.version ?? "4.10.0",
+			bin: {
+				"vscode-json-language-server":
+					overrides.binPath ?? "bin/vscode-json-language-server",
+			},
+		}),
+		"utf8",
+	);
+	const entry = join(packageRoot, "bin", "vscode-json-language-server");
+	await writeFile(entry, overrides.entry ?? DUMMY_ENTRY, "utf8");
+	await chmod(entry, 0o700);
+	const bin = join(root, "node_modules", ".bin");
+	await mkdir(bin, { recursive: true });
+	if (platform === "win32") {
+		await writeFile(
+			join(bin, "vscode-json-language-server.cmd"),
+			"@echo off\r\n",
+			"utf8",
+		);
+	} else {
+		await symlink(binTarget ?? entry, join(bin, "vscode-json-language-server"));
+	}
+	return entry;
+}
+
+/** A fake spawn that records its call and reports `4.10.0`, so a probe would be visible. */
+function recordingSpawn(calls: unknown[][]) {
+	return ((...args: unknown[]) => {
+		calls.push(args);
+		const child = new EventEmitter() as EventEmitter & {
+			stdout: EventEmitter;
+			kill(): boolean;
+		};
+		child.stdout = new EventEmitter();
+		child.kill = () => true;
+		queueMicrotask(() => {
+			child.stdout.emit("data", "4.10.0\n");
+			child.emit("close", 0);
+		});
+		return child;
+	}) as never;
+}
+
+describe("JSON installation verifier", () => {
+	const negativeCases: ReadonlyArray<{
+		name: string;
+		overrides?: JsonPackageOverrides;
+		recipe?: typeof JSON_RECIPE;
+	}> = [
+		{ name: "an entry whose digest is not pinned" },
+		{
+			name: "a manifest that declares another bin path",
+			overrides: { binPath: "bin/other" },
+		},
+		{
+			name: "a manifest with another root version",
+			overrides: { version: "4.11.0" },
+		},
+		{
+			name: "a recipe whose revision is not approved",
+			recipe: {
+				...JSON_RECIPE,
+				revision: "vscode-langservers-extracted-4.10.0_lock-0",
+			},
+		},
+	];
+
+	it.each(negativeCases)(
+		"fails closed without spawning for $name",
+		async (testCase) => {
+			const root = await temporaryDirectory();
+			await installJsonPackage(
+				root,
+				process.platform,
+				testCase.overrides ?? {},
+			);
+			const calls: unknown[][] = [];
+			const verifier = createNodeInstallationVerifier(
+				process.platform,
+				recordingSpawn(calls),
+			);
+			expect(
+				await verifier(
+					root,
+					testCase.recipe ?? JSON_RECIPE,
+					new AbortController().signal,
+				),
+			).toBeUndefined();
+			expect(calls).toHaveLength(0);
+		},
+	);
+
+	it.skipIf(process.platform === "win32")(
+		"rejects a POSIX shim that resolves to another file, without spawning",
+		async () => {
+			const root = await temporaryDirectory();
+			const other = join(
+				root,
+				"node_modules",
+				"vscode-langservers-extracted",
+				"lib",
+				"other.js",
+			);
+			await mkdir(
+				join(root, "node_modules", "vscode-langservers-extracted", "lib"),
+				{ recursive: true },
+			);
+			await writeFile(other, "#!/usr/bin/env node\n", "utf8");
+			await chmod(other, 0o700);
+			await installJsonPackage(root, "linux", {}, other);
+			const calls: unknown[][] = [];
+			const verifier = createNodeInstallationVerifier(
+				"linux",
+				recordingSpawn(calls),
+			);
+			expect(
+				await verifier(root, JSON_RECIPE, new AbortController().signal),
+			).toBeUndefined();
+			expect(calls).toHaveLength(0);
+		},
+	);
+
+	it.skipIf(process.platform === "win32")(
+		"rejects a package root that escapes the installation, without spawning",
+		async () => {
+			const root = await temporaryDirectory();
+			const outside = await temporaryDirectory();
+			await installJsonPackage(outside, "linux");
+			await mkdir(join(root, "node_modules"), { recursive: true });
+			const decoy = join(root, "node_modules", "decoy.js");
+			await writeFile(decoy, "#!/usr/bin/env node\n", "utf8");
+			await chmod(decoy, 0o700);
+			await symlink(
+				join(outside, "node_modules", "vscode-langservers-extracted"),
+				join(root, "node_modules", "vscode-langservers-extracted"),
+			);
+			const bin = join(root, "node_modules", ".bin");
+			await mkdir(bin, { recursive: true });
+			await symlink(decoy, join(bin, "vscode-json-language-server"));
+			const calls: unknown[][] = [];
+			const verifier = createNodeInstallationVerifier(
+				"linux",
+				recordingSpawn(calls),
+			);
+			expect(
+				await verifier(root, JSON_RECIPE, new AbortController().signal),
+			).toBeUndefined();
+			expect(calls).toHaveLength(0);
+		},
+	);
+
+	it("keeps the normal --version probe for a non-JSON recipe", async () => {
+		const recipe = INACTIVE_FORMAT_RECIPES["yaml-language-server"];
+		const root = await temporaryDirectory();
+		const bin = join(root, "node_modules", ".bin");
+		await mkdir(bin, { recursive: true });
+		const executable = join(bin, `${recipe.executable}.cmd`);
+		await writeFile(executable, "@echo off\r\n", "utf8");
+		let launched = 0;
+		const verifier = createNodeInstallationVerifier("win32", (() => {
+			launched += 1;
+			const child = new EventEmitter() as EventEmitter & {
+				stdout: EventEmitter;
+				kill(): boolean;
+			};
+			child.stdout = new EventEmitter();
+			child.kill = () => true;
+			queueMicrotask(() => {
+				child.stdout.emit("data", "1.24.0\n");
+				child.emit("close", 0);
+			});
+			return child;
+		}) as never);
+		expect(await verifier(root, recipe, new AbortController().signal)).toEqual({
+			path: executable,
+			version: "1.24.0",
+		});
+		expect(launched).toBe(1);
 	});
 });
 

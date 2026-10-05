@@ -6,6 +6,11 @@ import type { InstallRecipe, PythonInstallRecipe } from "./catalog.js";
 import { pythonExecutablePath } from "./adapters/python.js";
 import { createServerLaunch } from "./launch.js";
 import { resolveVuePackages } from "./vue-packages.js";
+import {
+	isApprovedJsonRecipe,
+	JSON_SERVER_ID,
+	verifyJsonInstallation,
+} from "./json-packages.js";
 
 export interface InstalledExecutable {
 	path: string;
@@ -124,6 +129,24 @@ export function createNodeInstallationVerifier(
 		if (signal.aborted) return undefined;
 		// The Python variant has its own installer layout and version format.
 		if (recipe.kind !== "npm") return undefined;
+		// The JSON server never prints `--version`. Only the approved frozen recipe verifies
+		// through installed metadata and the pinned entry hash, and any other JSON-shaped
+		// recipe fails closed here instead of falling back to a probe.
+		if (recipe.serverId === JSON_SERVER_ID) {
+			if (!isApprovedJsonRecipe(recipe)) return undefined;
+			const jsonPath = await existingExecutable(
+				installationPath,
+				recipe,
+				platform,
+			);
+			if (!jsonPath || signal.aborted) return undefined;
+			return verifyJsonInstallation(
+				installationPath,
+				jsonPath,
+				platform,
+				signal,
+			);
+		}
 		const path = await existingExecutable(installationPath, recipe, platform);
 		if (!path || signal.aborted) return undefined;
 		if (
