@@ -1,0 +1,123 @@
+name: Formats
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/formats.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "src/catalog/**"
+      - "src/commands/**"
+      - "src/config/**"
+      - "src/contracts.ts"
+      - "src/edits/**"
+      - "src/host/**"
+      - "src/index.ts"
+      - "src/install/**"
+      - "src/protocol/**"
+      - "src/resolve/**"
+      - "src/runtime/**"
+      - "src/tools/**"
+      - "test/host/**"
+      - "test/install/**"
+      - "test/real-servers/**"
+  pull_request:
+    paths:
+      - ".github/workflows/formats.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "src/catalog/**"
+      - "src/commands/**"
+      - "src/config/**"
+      - "src/contracts.ts"
+      - "src/edits/**"
+      - "src/host/**"
+      - "src/index.ts"
+      - "src/install/**"
+      - "src/protocol/**"
+      - "src/resolve/**"
+      - "src/runtime/**"
+      - "src/tools/**"
+      - "test/host/**"
+      - "test/install/**"
+      - "test/real-servers/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: formats-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  formats:
+    name: ${{ matrix.os }} / Node 22.19.0
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            platform: win32
+            architecture: x64
+          - os: macos-14
+            platform: darwin
+            architecture: arm64
+          - os: ubuntu-24.04
+            platform: linux
+            architecture: x64
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.19.0
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run the installed host baseline unit
+        run: npm test -- test/host/baseline.test.ts
+      - name: Assert the target Node version, platform and architecture
+        shell: bash
+        env:
+          EXPECTED_PLATFORM: ${{ matrix.platform }}
+          EXPECTED_ARCHITECTURE: ${{ matrix.architecture }}
+        run: |
+          # Fail closed on the observed host instead of trusting the runner label: the row
+          # only counts when the exact Node version, platform and architecture are present.
+          node -e '
+          const os = require("node:os");
+          const actual = { node: process.versions.node, platform: os.platform(), architecture: os.arch() };
+          if (actual.node !== "22.19.0") throw new Error(`unexpected Node ${actual.node}`);
+          if (actual.platform !== process.env.EXPECTED_PLATFORM) throw new Error(`unexpected platform ${actual.platform}`);
+          if (actual.architecture !== process.env.EXPECTED_ARCHITECTURE) throw new Error(`unexpected architecture ${actual.architecture}`);
+          // Sanitized host metadata only: no path, environment value or secret.
+          console.log(JSON.stringify(actual));
+          '
+          echo "npm $(npm --version)"
+      - name: Install the pinned format servers through the coordinator
+        shell: bash
+        run: |
+          # A fresh canonical root under RUNNER_TEMP per job; the ephemeral runner owns its
+          # own lifecycle, so this workflow never deletes a directory it cannot confirm is
+          # closed and never touches the checkout.
+          gate_root="$(mktemp -d "${RUNNER_TEMP:-/tmp}/formats-install-gate.XXXXXX")"
+          gate_root="$(node --input-type=module -e 'import { realpath } from "node:fs/promises"; process.stdout.write(await realpath(process.argv[1]));' "$gate_root")"
+          echo "FORMATS_INSTALL_ROOT=$gate_root" >> "$GITHUB_ENV"
+          # The opt-in gate installs both closures, consumes its own handoff through the
+          # validated reader and appends JSON_LSP_CLI/YAML_LSP_CLI to $GITHUB_ENV itself, so
+          # this step never re-parses the JSON by hand.
+          FORMATS_INSTALL_ROOT="$gate_root" \
+            FORMATS_INSTALL_HANDOFF="$gate_root/handoff.json" \
+            RUN_REAL_FORMATS_INSTALL=1 \
+            npm test -- test/install/formats-real-installation.test.ts
+          test -s "$gate_root/handoff.json"
+      - name: Run the real JSON and YAML schema fixtures
+        run: npm test -- test/real-servers/json-yaml-language-servers.test.ts
+        env:
+          RUN_REAL_FORMATS: "1"
