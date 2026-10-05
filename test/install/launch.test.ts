@@ -3,8 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	FORMAT_RECIPES,
 	getRecipe,
-	INACTIVE_FORMAT_RECIPES,
 	VUE_RECIPE,
 	type InstallRecipe,
 } from "../../src/install/catalog.js";
@@ -36,7 +36,7 @@ const recipe = getRecipe("typescript");
 if (!recipe || recipe.kind !== "npm")
 	throw new Error("TypeScript recipe is required.");
 
-const jsonRecipe = INACTIVE_FORMAT_RECIPES["vscode-json-language-server"];
+const jsonRecipe = FORMAT_RECIPES["vscode-json-language-server"];
 
 describe("controlled npm inputs", () => {
 	it("generates a complete immutable direct-dependency lock with exact registry tarballs and SRI", () => {

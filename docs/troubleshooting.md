@@ -32,11 +32,11 @@ Trust the project through Pi only after reviewing it. The extension will not rea
 4. its language IDs and optional `languageIdByExtension` mapping match the file;
 5. `lsp_status` reports a configured and available route.
 
-The built-in `typescript` and `vue` routes are the auto-installable entries. The other catalog IDs are candidates for manual configuration, not compatibility claims. For the Vue route, `/lsp install vue` or an authorized tool request installs the pinned `@vue/language-server@3.3.11`, `@vue/typescript-plugin@3.3.11`, `typescript@5.9.3` and `vue@3.5.43` closure from its internal recipe. A manual route instead needs `@vue/language-server@3.3.11`, `@vue/typescript-plugin@3.3.11`, and `typescript@5.9.3` together under one npm installation root: set a global route to an absolute Node executable and pass the absolute `<npm-root>/node_modules/@vue/language-server/bin/vue-language-server.js` path followed by `--stdio`. A global npm launcher on `PATH` alone cannot locate the plugin root. The route fails with `server_unavailable` when the plugin or TypeScript SDK is missing or has a different version.
+The built-in `typescript`, `vue`, `vscode-json-language-server`, and `yaml-language-server` routes are the auto-installable entries. The other catalog IDs are candidates for manual configuration, not compatibility claims. For the Vue route, `/lsp install vue` or an authorized tool request installs the pinned `@vue/language-server@3.3.11`, `@vue/typescript-plugin@3.3.11`, `typescript@5.9.3` and `vue@3.5.43` closure from its internal recipe. A manual route instead needs `@vue/language-server@3.3.11`, `@vue/typescript-plugin@3.3.11`, and `typescript@5.9.3` together under one npm installation root: set a global route to an absolute Node executable and pass the absolute `<npm-root>/node_modules/@vue/language-server/bin/vue-language-server.js` path followed by `--stdio`. A global npm launcher on `PATH` alone cannot locate the plugin root. The route fails with `server_unavailable` when the plugin or TypeScript SDK is missing or has a different version.
 
 ## Automatic installation is disabled or offline
 
-The result is `server_unavailable` with manual recovery text when `autoInstall` is disabled, the effective network policy is `offline`, the server has no recipe, or the platform is outside the recipe's verified rows. Run `/lsp install typescript` or `/lsp install vue` only for the built-in recipes when global policy permits it, or install a manual-route server yourself and configure its complete global route. A project file cannot supply executable settings.
+The result is `server_unavailable` with manual recovery text when `autoInstall` is disabled, the effective network policy is `offline`, the server has no recipe, or the platform is outside the recipe's verified rows. Run `/lsp install typescript`, `/lsp install vue`, `/lsp install vscode-json-language-server`, or `/lsp install yaml-language-server` only for the built-in recipes when global policy permits it, or install a manual-route server yourself and configure its complete global route. A project file cannot supply executable settings.
 
 ## Installation fails
 
@@ -46,9 +46,12 @@ Use `/lsp audit` for sanitized decision history. Common causes are:
 - package integrity mismatch;
 - unavailable platform recipe;
 - lock timeout from another active installer;
-- executable version mismatch after installation.
+- executable version mismatch after installation;
+- on Windows, the JSON route's pinned npm `.cmd` launcher template not matching the expected full SHA-256 hash.
 
 Retry only after resolving the reported cause. Do not delete managed directories while Pi is running. Status checks, discovery, and manual routes do not create installation state.
+
+The Windows JSON recipe launches npm through a pinned `.cmd` template and checks that launcher's full SHA-256 before use, so a different template or layout fails the verification closed even when the package download succeeded. Do not edit the launcher or bypass the hash check; the pinned template is the one validated by the CI toolchain. Report your Node and npm versions and the failure code from `/lsp audit` for review.
 
 A residual in `/lsp audit` means the coordinator kept managed state it could not clean safely, instead of deleting it blindly:
 

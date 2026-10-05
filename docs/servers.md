@@ -11,11 +11,11 @@ The catalog describes routing metadata. It does not download a server, run a pro
 | `tested` | The listed fixture, versions, and platforms passed the project's tests. |
 | `auto-installable` | A tested entry also has a fixed internal recipe that passed integrity, isolation, cancellation, and rollback checks. |
 
-The built-in catalog currently has two `auto-installable` entries (`typescript` and `vue`) and 30 `candidate` entries. It has no built-in `detected` or `tested` entries. `lsp_status` reports `available`, `runnable`, `routeConfigured`, `recipePresent`, and `installable` separately from `admission`. Fixture runs against a manually configured route do not change the entry's admission or create a compatibility row; an entry becomes `tested` only through a registered compatibility row.
+The built-in catalog currently has four `auto-installable` entries (`typescript`, `vue`, `vscode-json-language-server`, and `yaml-language-server`) and 29 `candidate` entries. It has no built-in `detected` or `tested` entries. `lsp_status` reports `available`, `runnable`, `routeConfigured`, `recipePresent`, and `installable` separately from `admission`. Fixture runs against a manually configured route do not change the entry's admission or create a compatibility row; an entry becomes `tested` only through a registered compatibility row.
 
 ## Built-in catalog
 
-The following IDs are present in the catalog. Every entry other than `typescript` and `vue` is a candidate only. The command and arguments shown are the route metadata; they are not compatibility claims and are never auto-installed from that metadata alone. Fixture evidence for one manual route does not extend to another entry: no CSS diagnostics or Tailwind support are claimed.
+The following IDs are present in the catalog. Every entry other than the four `auto-installable` IDs is a candidate only. The command and arguments shown are the route metadata; they are not compatibility claims and are never auto-installed from that metadata alone. Fixture evidence for one manual route does not extend to another entry: no CSS diagnostics or Tailwind support are claimed.
 
 | ID | Admission | Manual command and argv | Roles |
 |-|-|-|-|
@@ -37,7 +37,8 @@ The following IDs are present in the catalog. Every entry other than `typescript
 | `clangd` | candidate | `clangd` | diagnostics, semantic, mutation |
 | `jdtls` | candidate | no built-in route | diagnostics, semantic, mutation |
 | `kotlin-lsp` | candidate | `kotlin-lsp.sh` | diagnostics, semantic, mutation |
-| `yaml-language-server` | candidate | `yaml-language-server --stdio` | diagnostics, semantic, mutation |
+| `vscode-json-language-server` | `auto-installable` | `vscode-json-language-server --stdio` | diagnostics, semantic, mutation |
+| `yaml-language-server` | `auto-installable` | `yaml-language-server --stdio` | diagnostics, semantic, mutation |
 | `lua-language-server` | candidate | `lua-language-server` | diagnostics, semantic, mutation |
 | `intelephense` | candidate | `intelephense --stdio` | diagnostics, semantic, mutation |
 | `prisma` | candidate | `prisma-language-server --stdio` | diagnostics, semantic, mutation |
@@ -109,9 +110,36 @@ A row is added only after the pinned GitHub Actions job succeeds.
 
 The 0.84.1 rows record the original release fixture; the 0.87.1 rows record the host used for those development runs. Each row covers its tested runner and Pi version, not every Windows, macOS, or Linux release or every Pi peer version.
 
+## JSON and YAML
+
+The built-in `vscode-json-language-server` and `yaml-language-server` routes are `auto-installable` through internal recipes and also work as manual routes. These routes are registered on `main`; the published `0.2.0` package does not claim them.
+
+| Field | JSON server | YAML server |
+|-|-|-|
+| ID | `vscode-json-language-server` | `yaml-language-server` |
+| Package | `vscode-langservers-extracted` `4.10.0` | `yaml-language-server` `1.24.0` |
+| Command | `vscode-json-language-server --stdio` | `yaml-language-server --stdio` |
+| Extensions | `.json`, `.jsonc` | `.yaml`, `.yml` |
+| Language IDs | `json`, `jsonc` | `yaml` |
+| Roles | diagnostics, semantic, mutation | diagnostics, semantic, mutation |
+| Priority | `0` | `0` |
+| Admission | auto-installable only on the verified rows below | auto-installable only on the verified rows below |
+
+Both fixtures exercise diagnostics, process reuse, and shutdown. Each recipe installs one pinned package with its own complete lockfile and SHA-512 integrities. Neither route has a verified semantic result, so no definition, references, document-symbols, rename, or completion compatibility is claimed. `vscode-json-language-server` reports syntax and schema diagnostics only when `settings.json.validate.enable` is true; see [Configuration](configuration.md). `yaml-language-server` may read its upstream schema store over the network under your normal user permissions, and `network: "offline"` restricts installation rather than a running server.
+
+### Verified JSON and YAML platform rows
+
+A row is added only after the pinned GitHub Actions job succeeds.
+
+| Operating system | Architecture | Node | Pi | Evidence |
+|-|-|-|-|-|
+| Windows Server 2022 runner | x64 | 22.19.0 | 1.0.1 | [Formats CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/37353289805) |
+| macOS 14 runner | arm64 | 22.19.0 | 1.0.1 | [Formats CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/37353289805) |
+| Ubuntu 24.04 runner | x64 | 22.19.0 | 1.0.1 | [Formats CI run](https://github.com/Yivas/pi-lsp-manager/actions/runs/37353289805) |
+
 ## Installation recipe
 
-Automatic installation uses only the internal `typescript` and `vue` recipes. Both use:
+Automatic installation uses only the internal `typescript`, `vue`, `vscode-json-language-server`, and `yaml-language-server` recipes. All of them use:
 
 - registry: `https://registry.npmjs.org`;
 - exact package-lock metadata and SHA-512 integrity values;
@@ -119,7 +147,7 @@ Automatic installation uses only the internal `typescript` and `vue` recipes. Bo
 - isolated npm cache, home, prefix, and staging directories;
 - executable and version verification before promotion.
 
-The `typescript` recipe pins `typescript-language-server@5.3.0` and `typescript@5.9.3`. The `vue` recipe pins `@vue/language-server@3.3.11`, `@vue/typescript-plugin@3.3.11`, `typescript@5.9.3` and `vue@3.5.43` with its own complete lockfile; its paired TypeScript process still requires the co-located plugin. Tool arguments and project configuration cannot alter either recipe. Candidates and manually configured routes have no internal recipe, so `/lsp install <candidate-id>` is rejected rather than installing an arbitrary package.
+The `typescript` recipe pins `typescript-language-server@5.3.0` and `typescript@5.9.3`. The `vue` recipe pins `@vue/language-server@3.3.11`, `@vue/typescript-plugin@3.3.11`, `typescript@5.9.3` and `vue@3.5.43` with its own complete lockfile; its paired TypeScript process still requires the co-located plugin. The `vscode-json-language-server` recipe pins `vscode-langservers-extracted@4.10.0`, and the `yaml-language-server` recipe pins `yaml-language-server@1.24.0`; both carry their own complete lockfiles and verified executables. Tool arguments and project configuration cannot alter any recipe. Candidates and manually configured routes have no internal recipe, so `/lsp install <candidate-id>` is rejected rather than installing an arbitrary package.
 
 ## Manual routes and language metadata
 

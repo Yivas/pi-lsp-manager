@@ -280,17 +280,86 @@ describe("installation policy", () => {
 	});
 });
 
-describe("inactive format installation policy", () => {
-	it("denies managed installation for JSON and YAML candidates at every origin", () => {
+describe("active format installation policy", () => {
+	it("keeps the ordinary denials for the activated JSON and YAML recipes", () => {
+		const config = createDefaultConfig();
+		for (const serverId of [
+			"vscode-json-language-server",
+			"yaml-language-server",
+		] as const) {
+			const server = config.servers[serverId];
+			if (!server) throw new Error(`${serverId} configuration is required.`);
+			const denials: readonly [string, InstallPolicyInput, string][] = [
+				[
+					"untrusted tool",
+					input({ serverId, projectTrusted: false }),
+					"untrusted_project",
+				],
+				[
+					"offline",
+					input({
+						serverId,
+						globalConfig: { ...config, network: "offline" },
+					}),
+					"offline",
+				],
+				[
+					"disabled server",
+					input({
+						serverId,
+						globalConfig: {
+							...config,
+							servers: { [serverId]: { ...server, enabled: false } },
+						},
+					}),
+					"server_disabled",
+				],
+				[
+					"global auto-install",
+					input({
+						serverId,
+						globalConfig: { ...config, autoInstall: false },
+					}),
+					"auto_install_disabled",
+				],
+				[
+					"server auto-install",
+					input({
+						serverId,
+						globalConfig: {
+							...config,
+							servers: { [serverId]: { ...server, autoInstall: false } },
+						},
+					}),
+					"auto_install_disabled",
+				],
+				[
+					"unsupported platform",
+					input({ serverId, platform: "freebsd" }),
+					"unsupported_platform",
+				],
+			];
+			for (const [name, policyInput, reason] of denials)
+				expect(
+					evaluateInstallPolicy(policyInput),
+					`${serverId}:${name}`,
+				).toMatchObject({ allowed: false, reason });
+		}
+	});
+
+	it("admits managed installation for both activated formats at every origin", () => {
 		for (const serverId of [
 			"vscode-json-language-server",
 			"yaml-language-server",
 		] as const) {
 			for (const origin of ["tool", "post-edit", "explicit"] as const) {
-				expect(
-					evaluateInstallPolicy(input({ serverId, origin })),
-					`${serverId}:${origin}`,
-				).toMatchObject({ allowed: false, reason: "recipe_missing" });
+				const decision = evaluateInstallPolicy(input({ serverId, origin }));
+				expect(decision, `${serverId}:${origin}`).toMatchObject({
+					allowed: true,
+				});
+				if (!decision.allowed)
+					throw new Error(`The ${serverId} recipe must be admitted.`);
+				expect(decision.recipe.serverId).toBe(serverId);
 			}
 		}
 	});

@@ -25,7 +25,7 @@ Start with these sanitized views:
 
 ## Installation and diagnostics
 
-The built-in `typescript` and `vue` routes can be installed automatically. `server_unavailable` can mean that installation is disabled, network policy is `offline`, the route lacks a recipe, or the platform is outside verified rows. Use `/lsp install typescript` or `/lsp install vue` only when global policy permits it.
+The built-in `typescript`, `vue`, `vscode-json-language-server`, and `yaml-language-server` routes can be installed automatically. `server_unavailable` can mean that installation is disabled, network policy is `offline`, the route lacks a recipe, or the platform is outside verified rows. Use `/lsp install <id>` only for a built-in recipe when global policy permits it. On Windows, the JSON route launches npm through a pinned `.cmd` template and checks that launcher's full SHA-256, so a different template or layout fails the installation closed even when the package download succeeded; do not edit the launcher or bypass the hash check, and report your Node and npm versions and the failure code if it blocks you.
 
 `diagnostics_timed_out` means no initial push diagnostic arrived before `pushGraceMs` (five seconds by default). Confirm the project is valid for the server, inspect `lsp_status`, review timings, restart Pi, and reproduce in a small project before reporting it.
 

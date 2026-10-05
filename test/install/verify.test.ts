@@ -11,8 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+	FORMAT_RECIPES,
 	getRecipe,
-	INACTIVE_FORMAT_RECIPES,
 	INACTIVE_PYTHON_RECIPES,
 	VUE_RECIPE,
 } from "../../src/install/catalog.js";
@@ -202,7 +202,7 @@ describe("production installation verifier", () => {
 	});
 });
 
-const JSON_RECIPE = INACTIVE_FORMAT_RECIPES["vscode-json-language-server"];
+const JSON_RECIPE = FORMAT_RECIPES["vscode-json-language-server"];
 
 // Original bytes, not the upstream entry. Any content that is not the pinned artifact must
 // fail the digest guard; the upstream file is deliberately absent from this suite.
@@ -383,7 +383,7 @@ describe("JSON installation verifier", () => {
 	);
 
 	it("keeps the normal --version probe for a non-JSON recipe", async () => {
-		const recipe = INACTIVE_FORMAT_RECIPES["yaml-language-server"];
+		const recipe = FORMAT_RECIPES["yaml-language-server"];
 		const root = await temporaryDirectory();
 		const bin = join(root, "node_modules", ".bin");
 		await mkdir(bin, { recursive: true });

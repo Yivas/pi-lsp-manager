@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_SERVERS, validateCatalog } from "../../src/catalog/servers.js";
 import {
+	FORMAT_RECIPES,
 	getRecipe,
 	getRecipeRevision,
-	INACTIVE_FORMAT_RECIPES,
 	INACTIVE_PYTHON_RECIPES,
 	VUE_RECIPE,
 } from "../../src/install/catalog.js";
@@ -126,7 +126,7 @@ describe("server catalog", () => {
 		]);
 	});
 
-	it("keeps JSON and YAML candidates outside the active recipe registry", () => {
+	it("registers JSON and YAML as auto-installable with verified rows and active recipes", () => {
 		const json = DEFAULT_SERVERS.find(
 			(server) => server.id === "vscode-json-language-server",
 		);
@@ -135,14 +135,17 @@ describe("server catalog", () => {
 			extensions: [".json", ".jsonc"],
 			languageIds: ["json", "jsonc"],
 			languageIdByExtension: { ".json": "json", ".jsonc": "jsonc" },
+			roles: ["diagnostics", "semantic", "mutation"],
 			route: {
 				command: "vscode-json-language-server",
 				args: ["--stdio"],
 			},
 			priority: 0,
-			autoInstall: false,
-			admission: "candidate",
-			compatibility: [],
+			autoInstall: true,
+			admission: "auto-installable",
+			manualHelp: expect.stringContaining(
+				"vscode-langservers-extracted 4.10.0",
+			),
 		});
 
 		const yaml = DEFAULT_SERVERS.filter(
@@ -156,16 +159,46 @@ describe("server catalog", () => {
 				command: "yaml-language-server",
 				args: ["--stdio"],
 			},
-			admission: "candidate",
-			autoInstall: false,
-			compatibility: [],
+			autoInstall: true,
+			admission: "auto-installable",
+			manualHelp: expect.stringContaining("YAML Language Server 1.24.0"),
 		});
-		for (const id of ["vscode-json-language-server", "yaml-language-server"]) {
-			expect(getRecipe(id), id).toBeUndefined();
-			expect(getRecipeRevision(id), id).toBeUndefined();
+
+		for (const [id, serverVersion] of [
+			["vscode-json-language-server", "4.10.0"],
+			["yaml-language-server", "1.24.0"],
+		] as const) {
+			const server = DEFAULT_SERVERS.find((item) => item.id === id);
+			expect(
+				server?.compatibility.map((row) => [
+					row.platform,
+					row.architecture,
+					row.runner,
+				]),
+				id,
+			).toEqual([
+				["win32", "x64", "windows-2022"],
+				["darwin", "arm64", "macos-14"],
+				["linux", "x64", "ubuntu-24.04"],
+			]);
+			for (const row of server?.compatibility ?? []) {
+				expect(row, id).toMatchObject({
+					nodeVersion: "22.19.0",
+					piVersion: "1.0.1",
+					serverVersion,
+				});
+				// Only the behaviors the native matrix exercised are claimed.
+				expect(row.capabilities, id).toEqual([
+					"diagnostics",
+					"process-reuse",
+					"shutdown",
+				]);
+			}
+			expect(getRecipe(id), id).toBe(FORMAT_RECIPES[id]);
+			expect(getRecipeRevision(id), id).toBe(FORMAT_RECIPES[id].revision);
 		}
 
-		const jsonRecipe = INACTIVE_FORMAT_RECIPES["vscode-json-language-server"];
+		const jsonRecipe = FORMAT_RECIPES["vscode-json-language-server"];
 		expect(jsonRecipe).toMatchObject({
 			serverId: "vscode-json-language-server",
 			revision: "vscode-langservers-extracted-4.10.0_core-js-3.50.0_lock-1",
@@ -178,10 +211,9 @@ describe("server catalog", () => {
 				},
 			],
 		});
-		expect(getRecipe(jsonRecipe.serverId)).toBeUndefined();
-		expect(getRecipeRevision(jsonRecipe.serverId)).toBeUndefined();
+		expect(getRecipe(jsonRecipe.serverId)).toBe(jsonRecipe);
 
-		const yamlRecipe = INACTIVE_FORMAT_RECIPES["yaml-language-server"];
+		const yamlRecipe = FORMAT_RECIPES["yaml-language-server"];
 		expect(yamlRecipe).toMatchObject({
 			serverId: "yaml-language-server",
 			revision: "yaml-language-server-1.24.0_lock-1",
@@ -251,7 +283,11 @@ describe("server catalog", () => {
 			]),
 		);
 		for (const server of DEFAULT_SERVERS.filter(
-			(item) => item.id !== "typescript" && item.id !== "vue",
+			(item) =>
+				item.id !== "typescript" &&
+				item.id !== "vue" &&
+				item.id !== "vscode-json-language-server" &&
+				item.id !== "yaml-language-server",
 		)) {
 			expect(server).toMatchObject({
 				admission: "candidate",

@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import { readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
-import { INACTIVE_FORMAT_RECIPES, type InstallRecipe } from "./catalog.js";
+import { FORMAT_RECIPES, type InstallRecipe } from "./catalog.js";
 import type { InstalledExecutable } from "./verify.js";
 
 /** The only server id that verifies through installed metadata instead of a `--version` probe. */
 export const JSON_SERVER_ID = "vscode-json-language-server";
 
 /** The approved frozen recipe. The predicate below accepts nothing that differs from it. */
-const APPROVED_JSON_RECIPE = INACTIVE_FORMAT_RECIPES[JSON_SERVER_ID];
+const APPROVED_JSON_RECIPE = FORMAT_RECIPES[JSON_SERVER_ID];
 const APPROVED_JSON_PIN = APPROVED_JSON_RECIPE.packages[0];
 
 /**

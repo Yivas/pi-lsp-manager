@@ -32,7 +32,8 @@ export interface CompatibilityRow {
 	nodeVersion: string;
 	piVersion: string;
 	serverVersion: string;
-	languageVersion: string;
+	/** Absent when the server ships no separate language toolchain version to record. */
+	languageVersion?: string;
 	capabilities: readonly string[];
 }
 

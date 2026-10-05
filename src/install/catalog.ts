@@ -295,7 +295,11 @@ export const INACTIVE_PYTHON_RECIPES = deepFreeze<
 	),
 });
 
-export const INACTIVE_FORMAT_RECIPES = deepFreeze<
+/**
+ * The admitted JSON and YAML recipes. They install one pinned npm closure each and are
+ * spread into `RECIPES`, so `getRecipe` resolves them alongside the built-in entries.
+ */
+export const FORMAT_RECIPES = deepFreeze<
 	Record<
 		"vscode-json-language-server" | "yaml-language-server",
 		NpmInstallRecipe
@@ -371,6 +375,7 @@ export function selectPythonEntry(
 const RECIPES = deepFreeze<Record<string, NpmInstallRecipe>>({
 	typescript: TYPESCRIPT_RECIPE,
 	vue: VUE_RECIPE,
+	...FORMAT_RECIPES,
 });
 
 export function getRecipe(serverId: string): InstallRecipe | undefined {

@@ -9,9 +9,9 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { isAbsolute, join, relative, sep } from "node:path";
+import { createDefaultConfig } from "../../src/config/load.js";
 import {
-	getRecipe,
-	INACTIVE_FORMAT_RECIPES,
+	FORMAT_RECIPES,
 	type NpmInstallRecipe,
 } from "../../src/install/catalog.js";
 import { InstallCoordinator } from "../../src/install/coordinator.js";
@@ -19,10 +19,11 @@ import {
 	NodePackageManager,
 	type SpawnFunction,
 } from "../../src/install/npm.js";
+import { evaluateInstallPolicy } from "../../src/install/policy.js";
 import { createNodeInstallationVerifier } from "../../src/install/verify.js";
 
 /**
- * Shared gate for the opt-in real-format matrix. It installs the two inactive JSON and
+ * Shared gate for the opt-in real-format matrix. It installs the two admitted JSON and
  * YAML recipes through the production coordinator (real npm `ci`, the frozen lock and the
  * pinned SRI) and writes a small JSON handoff the fixture step consumes. It is skipped
  * unless `RUN_REAL_FORMATS_INSTALL=1`, so the deterministic suite starts no process and
@@ -151,19 +152,15 @@ export interface FormatsInstallOptions {
 }
 
 /**
- * Installs both inactive format closures through the production coordinator. The decision
- * injects the frozen `INACTIVE_FORMAT_RECIPES` entry directly; the gate asserts `getRecipe`
- * stays undefined first, so the candidate can never leak into the active registry.
+ * Installs both admitted format closures through the production coordinator. Each request
+ * starts from the real active registry: the ordinary install policy looks the recipe up
+ * through `getRecipe` and re-checks the built-in `enabled`, `autoInstall`, `network` and
+ * platform gates before any managed state is written, so no test seam forces `allowed: true`.
  */
 export async function installFormatServers(
 	options: FormatsInstallOptions,
 ): Promise<FormatsHandoff> {
-	for (const id of FORMATS_SERVER_IDS) {
-		if (getRecipe(id))
-			throw new Error(
-				`The ${id} recipe must stay inactive while the format matrix gate runs.`,
-			);
-	}
+	const config = createDefaultConfig();
 	const managed = join(options.root, "managed");
 	const coordinator = new InstallCoordinator({
 		packageManager: new NodePackageManager(options.spawnProcess),
@@ -176,9 +173,23 @@ export async function installFormatServers(
 	const servers: FormatsHandoffServer[] = [];
 	try {
 		for (const id of FORMATS_SERVER_IDS) {
-			const recipe = INACTIVE_FORMAT_RECIPES[id];
+			const decision = evaluateInstallPolicy({
+				origin: "tool",
+				serverId: id,
+				globalConfig: config,
+				projectTrusted: true,
+				platform: process.platform,
+				architecture: process.arch,
+			});
+			if (!decision.allowed)
+				throw new Error(
+					`The ${id} install policy denied the format matrix gate: ${decision.reason}.`,
+				);
+			const recipe = decision.recipe;
+			if (recipe.kind !== "npm")
+				throw new Error(`The ${id} recipe is not an npm closure.`);
 			const result = await coordinator.install({
-				decision: { allowed: true, recipe },
+				decision,
 				managedStatePath: managed,
 			});
 			if (result.status !== "ready")
@@ -317,7 +328,7 @@ export async function readFormatsHandoff(
 		if (seen.has(entry.id))
 			throw new Error("The formats handoff repeats a server id.");
 		seen.add(entry.id);
-		const expectedVersion = INACTIVE_FORMAT_RECIPES[entry.id].expectedVersion;
+		const expectedVersion = FORMAT_RECIPES[entry.id].expectedVersion;
 		const version = entry.version;
 		if (
 			typeof entry.entry !== "string" ||

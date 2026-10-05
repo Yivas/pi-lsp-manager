@@ -41,7 +41,7 @@ Upstream settings are not a sandbox. They can allow network requests and filesys
 }
 ```
 
-This disables the upstream schema store and maps one public example schema to a local file pattern. `yaml-language-server` remains a candidate route; this example neither installs, admits, nor verifies it.
+This disables the upstream schema store and maps one public example schema to a local file pattern for `yaml-language-server`. The example only sets `settings`: loading configuration never installs or starts a server, so it neither triggers the `yaml-language-server` recipe nor verifies the route.
 
 ### Built-in JSON validation default
 
