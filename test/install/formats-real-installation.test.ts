@@ -197,7 +197,7 @@ describe("formats installation gate guards", () => {
 			);
 			await expect(
 				readFormatsHandoff(handoffPath, root),
-			).resolves.toMatchObject({ version: 1, root });
+			).resolves.toMatchObject({ version: 1, root: await realpath(root) });
 		});
 
 		const cases: readonly [string, () => unknown][] = [
