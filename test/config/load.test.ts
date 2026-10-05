@@ -354,7 +354,9 @@ describe("configuration loading and restrictive merge", () => {
 		});
 		expect(result.globalLayer).toBe("invalid");
 		expect(result.projectLayer).toBe("invalid");
-		expect(result.config).toEqual(createDefaultConfig());
+		// The lower configuration is the built-in defaults plus the JSON validation default.
+		const baseline = await load({});
+		expect(result.config).toEqual(baseline.config);
 	});
 
 	it("keeps false and offline sticky across valid layers", async () => {
@@ -569,5 +571,89 @@ describe("configuration loading and restrictive merge", () => {
 			agentDirectory: agent,
 		});
 		expect(result.globalLayer).toBe("invalid");
+	});
+});
+
+describe("built-in JSON validation default", () => {
+	const JSON_SERVER = "vscode-json-language-server";
+
+	it("keeps an explicit JSON validation value at any level", async () => {
+		const paths = getConfigPaths(cwd, agentDirectory, projectDirectory);
+		for (const json of [
+			{ validate: { enable: false } },
+			{ validate: { enable: null } },
+			{ validate: null },
+			{ validate: [true] },
+			null,
+			[],
+			"off",
+		]) {
+			const result = await load({
+				[paths.globalConfigPath]: configText({
+					servers: { [JSON_SERVER]: { settings: { json } } },
+				}),
+			});
+			expect(result.globalLayer).toBe("valid");
+			expect(result.config.servers[JSON_SERVER]?.settings).toEqual({ json });
+		}
+	});
+
+	it("adds the JSON validation default only when the whole path is absent", async () => {
+		const paths = getConfigPaths(cwd, agentDirectory, projectDirectory);
+		const absent = await load({});
+		expect(absent.config.servers[JSON_SERVER]?.settings).toEqual({
+			json: { validate: { enable: true } },
+		});
+
+		const schemas = {
+			"https://example.com/schema.json": ["example.json"],
+		};
+		const withSchemas = await load({
+			[paths.globalConfigPath]: configText({
+				servers: { [JSON_SERVER]: { settings: { json: { schemas } } } },
+			}),
+		});
+		expect(withSchemas.config.servers[JSON_SERVER]?.settings).toEqual({
+			json: { schemas, validate: { enable: true } },
+		});
+
+		const withValidate = await load({
+			[paths.globalConfigPath]: configText({
+				servers: {
+					[JSON_SERVER]: {
+						settings: { json: { validate: { trace: "verbose" } } },
+					},
+				},
+			}),
+		});
+		expect(withValidate.config.servers[JSON_SERVER]?.settings).toEqual({
+			json: { validate: { trace: "verbose", enable: true } },
+		});
+	});
+
+	it("leaves sibling keys and other server settings untouched", async () => {
+		const paths = getConfigPaths(cwd, agentDirectory, projectDirectory);
+		const result = await load({
+			[paths.globalConfigPath]: configText({
+				servers: {
+					[JSON_SERVER]: {
+						settings: {
+							json: { validate: { enable: false } },
+							http: { useProxy: "off" },
+						},
+					},
+					typescript: {
+						settings: { preferences: { quoteStyle: "single" } },
+					},
+				},
+			}),
+		});
+		expect(result.config.servers[JSON_SERVER]?.settings).toEqual({
+			json: { validate: { enable: false } },
+			http: { useProxy: "off" },
+		});
+		expect(result.config.servers.typescript?.settings).toEqual({
+			preferences: { quoteStyle: "single" },
+		});
 	});
 });

@@ -43,6 +43,12 @@ Upstream settings are not a sandbox. They can allow network requests and filesys
 
 This disables the upstream schema store and maps one public example schema to a local file pattern. `yaml-language-server` remains a candidate route; this example neither installs, admits, nor verifies it.
 
+### Built-in JSON validation default
+
+The built-in `vscode-json-language-server` route reports syntax and schema diagnostics only when `json.validate.enable` is true and reads an absent value as false. When the global settings for that one server are a JSON object and the value is missing as an own property at every level, the extension adds `json.validate.enable: true`, so a `json.schemas` map works without repeating it. Any value at `json`, `json.validate`, or `json.validate.enable` is kept as written and stops the default; at the leaf, any explicit `enable` also stops it (`true` enables validation, `false` disables it, and `null` is not true, so validation stays off). Sibling keys and other servers are untouched, and your configuration file is never rewritten.
+
+The server's `settings` must still be a JSON object: a non-object invalidates the whole global layer, which is ignored, so the load falls back to the defaults where this new `true` is already present.
+
 ## Important defaults and bounds
 
 | Setting | Default | Bound |

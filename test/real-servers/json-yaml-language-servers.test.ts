@@ -9,7 +9,6 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { loadConfig } from "../../src/config/load.js";
-import type { EffectiveConfig } from "../../src/contracts.js";
 import {
 	NodeLspRuntimeSession,
 	type SpawnLspProcess,
@@ -389,47 +388,32 @@ describe.runIf(runJson)("JSON and JSONC language server", () => {
 			"utf8",
 		);
 
-		const config: EffectiveConfig = {
-			version: 1,
-			network: "offline",
-			autoInstall: false,
-			postEditDiagnostics: false,
-			servers: {
-				"vscode-json-language-server": {
-					id: "vscode-json-language-server",
-					enabled: true,
-					autoInstall: false,
-					priority: 100,
-					command: process.execPath,
-					args: [resolve(jsonCli), "--stdio"],
-					extensions: [".json", ".jsonc"],
-					roles: ["diagnostics"],
-					languageIds: ["json", "jsonc"],
-					languageIdByExtension: { ".json": "json", ".jsonc": "jsonc" },
-					admission: "candidate",
-					manualHelp: "Install vscode-langservers-extracted 4.10.0.",
-					// The server disables validation when the client sends no settings:
-					// `validateEnabled = !!settings.json?.validate?.enable` in its
-					// `onDidChangeConfiguration`. These are the global per-server
-					// settings, mirroring the YAML case below.
-					settings: { json: { validate: { enable: true } } },
+		// The global file omits `json.validate.enable`: the real loader supplies that default
+		// for this built-in ID, so validation still runs. The JSON files carry their own
+		// `$schema` references, so no client schema map is needed here.
+		const agentDirectory = join(root, "agent");
+		await mkdir(agentDirectory, { recursive: true });
+		await writeFile(
+			join(agentDirectory, "pi-lsp-manager.json"),
+			JSON.stringify({
+				version: 1,
+				network: "offline",
+				autoInstall: false,
+				postEditDiagnostics: false,
+				servers: {
+					"vscode-json-language-server": {
+						command: process.execPath,
+						args: [resolve(jsonCli), "--stdio"],
+					},
 				},
-			},
-		};
+			}),
+			"utf8",
+		);
 		pool = new RuntimePool();
 		const service = new TrustedOperationService({
 			coordinator: () => undefined,
 			pool: () => pool,
-			load: async () => ({
-				config,
-				paths: {
-					globalConfigPath: join(root, "global.json"),
-					projectConfigPath: join(root, "project.json"),
-					managedStatePath: join(root, "managed"),
-				},
-				globalLayer: "absent",
-				projectLayer: "absent",
-			}),
+			load: (options) => loadConfig({ ...options, agentDirectory }),
 			resolveCommand: async () => process.execPath,
 			start: (options) =>
 				NodeLspRuntimeSession.start({

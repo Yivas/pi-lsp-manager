@@ -347,10 +347,11 @@ async function main() {
 				autoInstall: false,
 				postEditDiagnostics: false,
 				servers: {
+					// The real loader supplies `json.validate.enable` for this built-in ID, so the
+					// scenario relies on that default instead of repeating it here.
 					[JSON_SERVER_ID]: {
 						command: process.execPath,
 						args: [jsonCli, "--stdio"],
-						settings: { json: { validate: { enable: true } } },
 					},
 					[YAML_SERVER_ID]: {
 						command: process.execPath,

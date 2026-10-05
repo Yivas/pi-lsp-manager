@@ -85,6 +85,12 @@ These settings are upstream-specific and are not a sandbox. Holding `network: "o
 
 This turns off the upstream schema store and maps one public example schema to a local file pattern. `yaml-language-server` is still a candidate route: this example neither installs, admits, nor verifies it.
 
+### Built-in JSON validation default
+
+The built-in `vscode-json-language-server` route reports syntax and schema diagnostics only when `settings.json.validate.enable` is true, and it reads an absent value as false. When the effective global settings for that one server ID are a JSON object and the value is missing as an own property at every level, the extension adds `json.validate.enable: true` before serving them, so a `json.schemas` map works without repeating the switch. Any value you set at `settings.json`, `settings.json.validate`, or `settings.json.validate.enable` is kept as written and stops the default; at the leaf, any explicit `enable` also stops it — `true` enables validation, `false` disables it, and `null` is not true, so validation stays off. Sibling keys, other servers, and the rest of the file are untouched, and the extension never writes your configuration file.
+
+The server's `settings` must still be a JSON object: a non-object `settings` invalidates the whole global layer, so that layer is ignored and the load falls back to the defaults, where this new `true` is already present. `null`, `false`, or an array is never a preserved `settings`.
+
 For a built-in catalog ID, global fields replace the corresponding catalog metadata. For a new ID, the complete route metadata is required even when the executable is already installed. A manual route has `autoInstall: false` and no internal recipe.
 
 Unknown keys, invalid types, malformed JSON, unsafe strings, and values outside the documented bounds invalidate the entire configuration layer instead of being ignored.

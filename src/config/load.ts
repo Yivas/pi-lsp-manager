@@ -413,6 +413,59 @@ function applyProject(
 	};
 }
 
+/**
+ * The built-in JSON language server reads `settings.json.validate.enable` when it handles
+ * `workspace/didChangeConfiguration`, and an absent value leaves validation off. Add the
+ * fallback for that one built-in ID after the global layer replaced its settings, so a global
+ * `json.schemas` map works without repeating the switch. The value is only added on an
+ * own-property miss at every level: an explicit `false`, `null`, scalar, array or object stays
+ * verbatim, along with every sibling key and every other server.
+ */
+const JSON_VALIDATION_SERVER_ID = "vscode-json-language-server";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function withJsonValidationDefault(config: EffectiveConfig): EffectiveConfig {
+	const server = config.servers[JSON_VALIDATION_SERVER_ID];
+	if (!server) return config;
+
+	const settings = server.settings;
+	if (settings !== undefined && !isRecord(settings)) return config;
+	const base: Readonly<Record<string, unknown>> = settings ?? {};
+
+	let json: Record<string, unknown> = {};
+	if (Object.hasOwn(base, "json")) {
+		const value = base.json;
+		if (!isRecord(value)) return config;
+		json = value;
+	}
+
+	let validate: Record<string, unknown> = {};
+	if (Object.hasOwn(json, "validate")) {
+		const value = json.validate;
+		if (!isRecord(value)) return config;
+		validate = value;
+	}
+
+	if (Object.hasOwn(validate, "enable")) return config;
+
+	return {
+		...config,
+		servers: {
+			...config.servers,
+			[JSON_VALIDATION_SERVER_ID]: {
+				...server,
+				settings: {
+					...base,
+					json: { ...json, validate: { ...validate, enable: true } },
+				},
+			},
+		},
+	};
+}
+
 export function createDefaultConfig(
 	catalog: readonly ServerDefinition[] = DEFAULT_SERVERS,
 ): EffectiveConfig {
@@ -459,6 +512,7 @@ export async function loadConfig(
 			}
 		}
 	}
+	config = withJsonValidationDefault(config);
 	if (!options.isProjectTrusted) {
 		return { config, paths, globalLayer, projectLayer: "not-read" };
 	}
