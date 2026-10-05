@@ -13,9 +13,35 @@ Settings merge in this order: built-in defaults, global configuration, then trus
 
 ## Reduction-only project settings
 
-A trusted project can disable a known server or automatic installation, lower priority and diagnostic timings, add excluded directory names, set `network` to `offline`, and disable post-edit diagnostics. It cannot add routes, commands, argv, environment values, initialization options, extensions, language IDs, roles, packages, URLs, or recipes. `false` and `offline` stay in effect through later layers.
+A trusted project can disable a known server or automatic installation, lower priority and diagnostic timings, add excluded directory names, set `network` to `offline`, and disable post-edit diagnostics. It cannot add routes, commands, argv, environment values, initialization options, settings, extensions, language IDs, roles, packages, URLs, or recipes. `false` and `offline` stay in effect through later layers.
 
 The extension does not import `pi-lsp.json`, `lsp.json`, editor settings, or another extension's configuration.
+
+## Per-server LSP settings
+
+The global file may attach an optional `settings` object to a server. The extension returns it from `workspace/configuration` and re-sends it in `workspace/didChangeConfiguration` after initialization. It is separate from `initialization`, which is sent once as `initialize.initializationOptions`, is global-only, and is rejected in a project file.
+
+Upstream settings are not a sandbox. They can allow network requests and filesystem access under your normal user permissions, and `network: "offline"` does not restrict a server that is already running.
+
+```json
+{
+  "version": 1,
+  "servers": {
+    "yaml-language-server": {
+      "settings": {
+        "yaml": {
+          "schemaStore": { "enable": false },
+          "schemas": {
+            "https://example.com/schemas/example.json": ["example.yaml"]
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+This disables the upstream schema store and maps one public example schema to a local file pattern. `yaml-language-server` remains a candidate route; this example neither installs, admits, nor verifies it.
 
 ## Important defaults and bounds
 
@@ -28,6 +54,7 @@ The extension does not import `pi-lsp.json`, `lsp.json`, editor settings, or ano
 | `pullGraceMs` | `250` | Integer from 1 to 60000. |
 | `requestTimeoutMs` | `30000` | Integer from 1 to 60000. |
 | server priority | catalog value or `0` | Integer from -10000 to 10000. |
+| server `settings` | unset | Bounded JSON object served through `workspace/configuration`; global only; `__proto__`, `prototype` and `constructor` rejected at any depth. |
 
 `diagnostics.excludeDirectories` contains directory names, not paths; each layer adds names. Restart or reload Pi after changing global executable settings. Inspect the effective policy with `/lsp policy` or `lsp_status`.
 

@@ -166,6 +166,9 @@ function applyGlobalServer(
 			...(override.languageIdByExtension !== undefined
 				? { languageIdByExtension: { ...override.languageIdByExtension } }
 				: {}),
+			...(override.settings !== undefined
+				? { settings: { ...override.settings } }
+				: {}),
 			diagnostics: {
 				pushGraceMs: 5_000,
 				settleMs: 50,
@@ -228,6 +231,9 @@ function applyGlobalServer(
 			: base.languageIds,
 		...(override.languageIdByExtension !== undefined
 			? { languageIdByExtension: { ...override.languageIdByExtension } }
+			: {}),
+		...(override.settings !== undefined
+			? { settings: { ...override.settings } }
 			: {}),
 	};
 	if (

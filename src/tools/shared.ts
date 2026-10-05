@@ -445,7 +445,11 @@ export class TrustedOperationService {
 				target.rootPath,
 				server.id,
 				async (startSignal) => {
-					const key = await pool.key(target.rootPath, server.id);
+					const key = await pool.key(
+						target.rootPath,
+						server.id,
+						server.settings,
+					);
 					return this.start({
 						launch,
 						...(server.id === "vue" ? { vueExecutablePath: executable } : {}),
@@ -459,6 +463,7 @@ export class TrustedOperationService {
 					});
 				},
 				signal,
+				server.settings,
 			)
 			.catch((error: unknown) => {
 				if (error instanceof VueIntegrationUnavailableError)
@@ -905,7 +910,7 @@ export class TrustedOperationService {
 				rootPath,
 				server.id,
 				async (startSignal) => {
-					const key = await pool.key(rootPath, server.id);
+					const key = await pool.key(rootPath, server.id, server.settings);
 					return this.start({
 						launch,
 						...(server.id === "vue" ? { vueExecutablePath: executable } : {}),
@@ -919,6 +924,7 @@ export class TrustedOperationService {
 					});
 				},
 				signal,
+				server.settings,
 			)
 			.catch((error: unknown) => {
 				if (error instanceof VueIntegrationUnavailableError)

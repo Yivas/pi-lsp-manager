@@ -39,21 +39,55 @@ export interface LspSessionOptions {
 	workspaceFolders?: readonly { uri: string; name: string }[];
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * JSON copy of the effective global settings so LSP handlers never alias or mutate
+ * the loaded configuration object.
+ */
+function configurationSnapshot(
+	settings: Readonly<Record<string, unknown>> | undefined,
+): Readonly<Record<string, unknown>> {
+	return settings ? JSON.parse(JSON.stringify(settings)) : {};
+}
+
+/**
+ * Resolves one `workspace/configuration` item against the settings snapshot. An absent
+ * section means the whole object, a dotted section reads own properties only, and a
+ * missing section yields `{}`. JSON values, including `false`, `null` and arrays, are
+ * returned unchanged. `scopeUri`, if any, is ignored because these settings are global.
+ */
+function resolveConfigurationSection(
+	settings: Readonly<Record<string, unknown>>,
+	section: string | undefined,
+): unknown {
+	if (section === undefined || section === "") return settings;
+	let current: unknown = settings;
+	for (const segment of section.split(".")) {
+		if (!isRecord(current) || !Object.hasOwn(current, segment)) return {};
+		current = current[segment];
+	}
+	return current;
+}
+
 export class LspSession {
 	public readonly documents = new DocumentStore();
 	public capabilities: ServerCapabilities = {};
 	private initialized = false;
 	private initialization: Promise<boolean> | undefined;
 	private initializationAttempted = false;
+	private readonly settings: Readonly<Record<string, unknown>>;
 
 	public constructor(
 		public readonly connection: LspConnection,
 		private readonly options: LspSessionOptions,
 	) {
-		connection.onRequest("workspace/configuration", (params) => {
-			const items = (params as { items?: unknown[] } | undefined)?.items ?? [];
-			return items.map(() => ({}));
-		});
+		this.settings = configurationSnapshot(options.server.settings);
+		connection.onRequest("workspace/configuration", (params) =>
+			this.configurationItems(params),
+		);
 		connection.onRequest(
 			"workspace/workspaceFolders",
 			() =>
@@ -103,13 +137,38 @@ export class LspSession {
 		try {
 			await this.connection.notify("initialized", {});
 			await this.connection.notify("workspace/didChangeConfiguration", {
-				settings: {},
+				settings: this.settings,
 			});
 			this.initialized = true;
 			return true;
 		} catch {
 			return false;
 		}
+	}
+
+	private configurationItems(params: unknown): readonly unknown[] {
+		const items = (params as { items?: unknown } | undefined)?.items;
+		if (!Array.isArray(items)) {
+			throw new ResponseError(
+				ErrorCodes.InvalidParams,
+				"configuration items must be an array",
+			);
+		}
+		return items.map((item) => {
+			if (!isRecord(item)) {
+				throw new ResponseError(
+					ErrorCodes.InvalidParams,
+					"configuration item must be an object",
+				);
+			}
+			if (item.section !== undefined && typeof item.section !== "string") {
+				throw new ResponseError(
+					ErrorCodes.InvalidParams,
+					"configuration item section must be a string",
+				);
+			}
+			return resolveConfigurationSection(this.settings, item.section);
+		});
 	}
 
 	public async shutdown(): Promise<void> {

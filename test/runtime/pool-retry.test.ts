@@ -305,4 +305,79 @@ describe("runtime pool and retries", () => {
 		await reaper.stop();
 		await reaper.stop();
 	});
+
+	it("scopes sessions to the settings digest without exposing the settings", async () => {
+		const workspace = await root();
+		const pool = new RuntimePool();
+		const absent = await pool.key(workspace, "yaml-language-server");
+		expect(await pool.key(workspace, "yaml-language-server", {})).toBe(absent);
+		const present = await pool.key(workspace, "yaml-language-server", {
+			yaml: { schemaStore: { enable: false } },
+		});
+		expect(present).not.toBe(absent);
+		expect(present).not.toContain("schemaStore");
+		expect(present).not.toContain("enable");
+	});
+
+	it("reuses one process for equal settings and starts a new one when they change", async () => {
+		const workspace = await root();
+		const pool = new RuntimePool();
+		let starts = 0;
+		let terminated = 0;
+		const start = async () => {
+			starts += 1;
+			return {
+				shutdown: async () => undefined,
+				terminate: async () => {
+					terminated += 1;
+				},
+			};
+		};
+		const settings = { yaml: { schemaStore: { enable: false } } };
+		const first = await pool.acquire(
+			workspace,
+			"yaml-language-server",
+			start,
+			undefined,
+			settings,
+		);
+		const second = await pool.acquire(
+			workspace,
+			"yaml-language-server",
+			start,
+			undefined,
+			settings,
+		);
+		expect(starts).toBe(1);
+		// The factory-side key, as shared.ts computes it, matches the published entry.
+		expect(first.entry.key).toBe(
+			await pool.key(workspace, "yaml-language-server", settings),
+		);
+		first.lease.release();
+		second.lease.release();
+		const changed = await pool.acquire(
+			workspace,
+			"yaml-language-server",
+			start,
+			undefined,
+			{ yaml: { schemaStore: { enable: true } } },
+		);
+		expect(starts).toBe(2);
+		// A different settings value must publish a different key for the same tuple.
+		expect(changed.entry.key).not.toBe(first.entry.key);
+		expect(changed.entry.key).toBe(
+			await pool.key(workspace, "yaml-language-server", {
+				yaml: { schemaStore: { enable: true } },
+			}),
+		);
+		changed.lease.release();
+		// The lifecycle callback reaches exactly the entry published for this settings key.
+		await pool.lifecycleCallbacks(first.entry.key).onTaint();
+		expect(terminated).toBe(1);
+		expect(pool.size()).toBe(1);
+		await pool.lifecycleCallbacks(changed.entry.key).onExit();
+		expect(terminated).toBe(2);
+		expect(pool.size()).toBe(0);
+		await pool.shutdown();
+	});
 });

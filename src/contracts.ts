@@ -68,6 +68,8 @@ export interface GlobalServerConfig {
 	languageIds?: string[];
 	languageIdByExtension?: Record<string, string>;
 	initialization?: Record<string, unknown>;
+	/** LSP settings served through `workspace/configuration`; global layer only. */
+	settings?: Record<string, unknown>;
 	diagnostics?: Partial<DiagnosticTiming>;
 }
 
@@ -112,6 +114,8 @@ export interface EffectiveServerConfig {
 	roles: readonly ServerRole[];
 	languageIds: readonly string[];
 	languageIdByExtension?: Readonly<Record<string, string>>;
+	/** Global per-server LSP settings snapshot; projects can never set or replace it. */
+	settings?: Readonly<Record<string, unknown>>;
 	diagnostics?: DiagnosticTiming;
 	admission: ServerAdmission;
 	manualHelp: string;

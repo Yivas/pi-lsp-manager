@@ -63,6 +63,110 @@ describe("JSON-RPC LSP session", () => {
 		client.close();
 		fake.dispose();
 	});
+	it("serves effective global settings for workspace/configuration items", async () => {
+		const { client, server: fake } = channels();
+		const settings = {
+			yaml: {
+				schemaStore: { enable: false },
+				schemas: {
+					"https://example.com/schemas/example.json": ["example.yaml"],
+				},
+			},
+			nested: { flag: true, blank: null, empty: "" },
+		};
+		new LspSession(client, {
+			rootPath: process.cwd(),
+			server: { ...server, settings },
+		});
+		await expect(
+			fake.sendRequest("workspace/configuration", {
+				items: [
+					{},
+					{ section: "" },
+					{ section: "yaml.schemaStore" },
+					{ section: "yaml.schemaStore.enable" },
+					{ section: "yaml.schemas" },
+					{ section: "nested.flag" },
+					{ section: "nested.blank" },
+					{ section: "missing" },
+					{ section: "nested.flag.child" },
+					// Own properties only: inherited names resolve to an empty object.
+					{ section: "constructor" },
+					{ section: "toString" },
+					{ scopeUri: "file:///ignored", section: "nested.flag" },
+				],
+			}),
+		).resolves.toEqual([
+			settings,
+			settings,
+			{ enable: false },
+			false,
+			{ "https://example.com/schemas/example.json": ["example.yaml"] },
+			true,
+			null,
+			{},
+			{},
+			{},
+			{},
+			true,
+		]);
+		expect(
+			await fake.sendRequest("workspace/configuration", { items: [] }),
+		).toEqual([]);
+		client.close();
+		fake.dispose();
+	});
+	it("rejects malformed workspace/configuration requests with InvalidParams", async () => {
+		const { client, server: fake } = channels();
+		new LspSession(client, {
+			rootPath: process.cwd(),
+			server: { ...server, settings: { value: 1 } },
+		});
+		for (const params of [
+			null,
+			undefined,
+			"items",
+			{},
+			{ items: "all" },
+			{ items: [null] },
+			{ items: [1] },
+			{ items: [{ section: 1 }] },
+			{ items: [{ section: null }] },
+		]) {
+			await expect(
+				fake.sendRequest("workspace/configuration", params),
+			).rejects.toMatchObject({
+				code: -32602,
+				message: expect.stringMatching(/^configuration /),
+			});
+		}
+		client.close();
+		fake.dispose();
+	});
+	it("keeps initializationOptions separate from the served settings", async () => {
+		const { client, server: fake } = channels();
+		let initializationOptions: unknown;
+		let changed: unknown;
+		fake.onRequest("initialize", async (params) => {
+			initializationOptions = (params as { initializationOptions?: unknown })
+				.initializationOptions;
+			return { capabilities: {} };
+		});
+		fake.onNotification("workspace/didChangeConfiguration", (params) => {
+			changed = (params as { settings?: unknown }).settings;
+		});
+		const settings = { yaml: { schemaStore: { enable: false } } };
+		const session = new LspSession(client, {
+			rootPath: process.cwd(),
+			server: { ...server, initialization: { locale: "en" }, settings },
+		});
+		expect(await session.initialize()).toBe(true);
+		await new Promise((resolve) => setTimeout(resolve, 5));
+		expect(initializationOptions).toEqual({ locale: "en" });
+		expect(changed).toEqual(settings);
+		client.close();
+		fake.dispose();
+	});
 	it("acknowledges an empty capability registration during initialize", async () => {
 		const { client, server: fake } = channels();
 		let registration: unknown = "unanswered";

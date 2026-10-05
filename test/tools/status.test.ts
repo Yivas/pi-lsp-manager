@@ -98,11 +98,25 @@ describe("safe status snapshot", () => {
 				path: "/managed/typescript-language-server",
 				version: "5.3.0",
 			}));
+			const settings = {
+				typescript: { preferences: { includePackageJsonAutoImports: "off" } },
+			};
+			const defaults = createDefaultConfig();
+			const typescript = defaults.servers.typescript;
+			if (!typescript)
+				throw new Error("The default catalog lost the typescript server.");
+			const warmupConfig: EffectiveConfig = {
+				...defaults,
+				servers: {
+					...defaults.servers,
+					typescript: { ...typescript, settings },
+				},
+			};
 			const service = new TrustedOperationService({
 				coordinator: () => undefined,
 				pool: () => ({ acquire }) as never,
 				load: async () => ({
-					config: createDefaultConfig(),
+					config: warmupConfig,
 					paths: {
 						globalConfigPath: "global",
 						projectConfigPath: "project",
@@ -116,11 +130,14 @@ describe("safe status snapshot", () => {
 			});
 			await service.warmup({ ...context(), cwd }, "typescript");
 			expect(verifyInstallation).toHaveBeenCalledTimes(1);
+			// The global settings must reach the pool as the fifth argument so the
+			// published key and the factory key agree.
 			expect(acquire).toHaveBeenCalledWith(
 				expect.any(String),
 				"typescript",
 				expect.any(Function),
 				undefined,
+				settings,
 			);
 		} finally {
 			await rm(cwd, { recursive: true, force: true });

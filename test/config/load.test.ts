@@ -185,6 +185,59 @@ describe("strict configuration parsing", () => {
 		).toBe(true);
 	});
 
+	it("accepts global settings for known and custom servers but never from a project", () => {
+		const settings = {
+			yaml: {
+				schemaStore: { enable: false },
+				schemas: {
+					"https://example.com/schemas/example.json": ["example.yaml"],
+				},
+			},
+			nested: { flag: true, blank: null, empty: "" },
+		};
+		const global = configText({
+			servers: {
+				typescript: { settings },
+				custom: {
+					command: "custom-ls",
+					args: [],
+					extensions: [".custom"],
+					roles: ["diagnostics"],
+					languageIds: ["custom"],
+					settings: { enabled: false, count: 0 },
+				},
+			},
+		});
+		expect(parseConfigText(global, "global").ok).toBe(true);
+		// Settings carry no reduction, so any project attempt fails the whole layer.
+		expect(
+			parseConfigText(
+				configText({ servers: { typescript: { settings } } }),
+				"project",
+			).ok,
+		).toBe(false);
+	});
+
+	it("rejects non-object, unbounded and dangerous global settings", () => {
+		for (const text of [
+			configText({ servers: { typescript: { settings: "string" } } }),
+			configText({ servers: { typescript: { settings: [] } } }),
+			configText({
+				servers: {
+					typescript: {
+						settings: { value: "x".repeat(MAX_STRING_LENGTH + 1) },
+					},
+				},
+			}),
+			// Raw text so `__proto__` is an own JSON key instead of a literal prototype.
+			'{"version":1,"servers":{"typescript":{"settings":{"__proto__":{"x":1}}}}}',
+			'{"version":1,"servers":{"typescript":{"settings":{"nested":{"constructor":{}}}}}}',
+			'{"version":1,"servers":{"typescript":{"settings":{"list":[{"prototype":1}]}}}}',
+		]) {
+			expect(parseConfigText(text, "global").ok).toBe(false);
+		}
+	});
+
 	it("bounds configuration text and initialization values before use", () => {
 		expect(
 			parseConfigText(" ".repeat(MAX_CONFIG_TEXT_LENGTH + 1), "global").ok,
@@ -239,6 +292,44 @@ describe("configuration loading and restrictive merge", () => {
 			args: ["--stdio"],
 			env: { MODE: "safe" },
 			initialization: { enabled: true },
+		});
+	});
+
+	it("keeps global settings through an invalid project layer", async () => {
+		const paths = getConfigPaths(cwd, agentDirectory, projectDirectory);
+		const settings = {
+			yaml: {
+				schemaStore: { enable: false },
+				schemas: {
+					"https://example.com/schemas/example.json": ["example.yaml"],
+				},
+			},
+			nested: { flag: true, blank: null },
+		};
+		const result = await load({
+			[paths.globalConfigPath]: configText({
+				servers: {
+					typescript: { settings },
+					custom: {
+						command: "custom-ls",
+						args: [],
+						extensions: [".custom"],
+						roles: ["diagnostics"],
+						languageIds: ["custom"],
+						settings: { enabled: false, count: 0 },
+					},
+				},
+			}),
+			[paths.projectConfigPath]: configText({
+				servers: { typescript: { settings: { evil: true } } },
+			}),
+		});
+		expect(result.globalLayer).toBe("valid");
+		expect(result.projectLayer).toBe("invalid");
+		expect(result.config.servers.typescript?.settings).toEqual(settings);
+		expect(result.config.servers.custom?.settings).toEqual({
+			enabled: false,
+			count: 0,
 		});
 	});
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { realpath } from "node:fs/promises";
 import { LeaseCounter, type Lease } from "./lease.js";
 import { SerialQueue } from "./queue.js";
@@ -69,6 +70,18 @@ function abortError(): Error {
 	return new Error("start_aborted");
 }
 
+/**
+ * Digest of the effective global settings used as an internal pool discriminant.
+ * Absent or empty settings keep the historic root/server key, and the digest never
+ * exposes the settings themselves in a key, status, log or error.
+ */
+function settingsDigest(
+	settings: Readonly<Record<string, unknown>> | undefined,
+): string | undefined {
+	if (!settings || Object.keys(settings).length === 0) return undefined;
+	return createHash("sha256").update(JSON.stringify(settings)).digest("hex");
+}
+
 /** A process pool keyed by an unambiguous canonical root/server tuple. */
 export class RuntimePool {
 	private readonly entries = new Map<string, PoolEntry>();
@@ -90,8 +103,17 @@ export class RuntimePool {
 		this.idleMs = options.idleMs ?? 300_000;
 	}
 
-	public async key(rootPath: string, serverId: string): Promise<string> {
-		return JSON.stringify([await realpath(rootPath), serverId]);
+	public async key(
+		rootPath: string,
+		serverId: string,
+		settings?: Readonly<Record<string, unknown>>,
+	): Promise<string> {
+		const digest = settingsDigest(settings);
+		return JSON.stringify([
+			await realpath(rootPath),
+			serverId,
+			...(digest ? [digest] : []),
+		]);
 	}
 
 	public async acquire(
@@ -99,6 +121,7 @@ export class RuntimePool {
 		serverId: string,
 		factory: RuntimeSessionFactory,
 		signal?: AbortSignal,
+		settings?: Readonly<Record<string, unknown>>,
 	): Promise<{ entry: PoolEntry; lease: Lease }> {
 		if (this.shuttingDown) throw new Error("pool_shutting_down");
 		if (signal?.aborted) throw new Error("cancelled");
@@ -106,7 +129,7 @@ export class RuntimePool {
 			this.activated = true;
 			this.onActive?.();
 		}
-		const key = await this.key(rootPath, serverId);
+		const key = await this.key(rootPath, serverId, settings);
 		let entry = this.entries.get(key);
 		if (!entry || entry.state !== "ready") {
 			let pending = this.starting.get(key);
@@ -123,7 +146,7 @@ export class RuntimePool {
 		if (this.shuttingDown) throw new Error("pool_shutting_down");
 		if (signal?.aborted) throw new Error("cancelled");
 		if (entry.state !== "ready" || this.entries.get(key) !== entry)
-			return this.acquire(rootPath, serverId, factory, signal);
+			return this.acquire(rootPath, serverId, factory, signal, settings);
 		entry.waiters += 1;
 		const lease = entry.leases.acquire(() => {
 			entry.waiters -= 1;

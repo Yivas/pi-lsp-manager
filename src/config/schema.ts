@@ -156,6 +156,21 @@ function isJsonValue(value: unknown, depth = 0): boolean {
 	return false;
 }
 
+// A JSON object parsed from text may carry these keys as own properties. Reject them
+// recursively so prototype-affecting names never reach a lookup or a prototype mutation.
+const DANGEROUS_JSON_KEYS = ["__proto__", "prototype", "constructor"] as const;
+
+function hasDangerousJsonKeys(value: unknown): boolean {
+	if (Array.isArray(value)) return value.some(hasDangerousJsonKeys);
+	if (!isRecord(value)) return false;
+	return Object.entries(value).some(
+		([key, item]) =>
+			DANGEROUS_JSON_KEYS.includes(
+				key as (typeof DANGEROUS_JSON_KEYS)[number],
+			) || hasDangerousJsonKeys(item),
+	);
+}
+
 function parseGlobalServer(value: unknown): GlobalServerConfig | undefined {
 	if (
 		!isRecord(value) ||
@@ -171,6 +186,7 @@ function parseGlobalServer(value: unknown): GlobalServerConfig | undefined {
 			"languageIds",
 			"languageIdByExtension",
 			"initialization",
+			"settings",
 			"diagnostics",
 		])
 	) {
@@ -193,6 +209,10 @@ function parseGlobalServer(value: unknown): GlobalServerConfig | undefined {
 		(value.initialization !== undefined &&
 			(!isRecord(value.initialization) ||
 				!isJsonValue(value.initialization))) ||
+		(value.settings !== undefined &&
+			(!isRecord(value.settings) ||
+				!isJsonValue(value.settings) ||
+				hasDangerousJsonKeys(value.settings))) ||
 		(value.diagnostics !== undefined && !isDiagnosticConfig(value.diagnostics))
 	) {
 		return undefined;

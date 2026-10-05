@@ -57,6 +57,34 @@ Commands are an executable plus an argv array. They are not shell strings. The e
 
 `initialization` is sent as LSP `initialize.initializationOptions`. A server's diagnostic timing controls the wait for push diagnostics, the settle interval, and the pull-diagnostics grace period. The global `diagnostics.requestTimeoutMs` bounds LSP requests. `excludeDirectories` contains directory names, not paths; these names are added to the default exclusion set used by batch discovery.
 
+### Per-server LSP settings
+
+`settings` is an optional, bounded JSON object that the extension serves to the server through `workspace/configuration` and re-sends in `workspace/didChangeConfiguration` after initialization. A request item without a section gets the whole object; a dotted section reads own properties only; a missing section gets `{}`. It is separate from `initialization`, which is sent once as `initialize.initializationOptions`.
+
+`settings` is global-only. A project file that sets it invalidates that layer, and a project layer can never replace or remove the global value. The keys `__proto__`, `prototype`, and `constructor` are rejected at any depth.
+
+These settings are upstream-specific and are not a sandbox. Holding `network: "offline"` or `autoInstall: false` does not restrict what a running server does: its settings can enable network requests and filesystem access under your normal user permissions. Review them as you would any other upstream option.
+
+```json
+{
+  "version": 1,
+  "servers": {
+    "yaml-language-server": {
+      "settings": {
+        "yaml": {
+          "schemaStore": { "enable": false },
+          "schemas": {
+            "https://example.com/schemas/example.json": ["example.yaml"]
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+This turns off the upstream schema store and maps one public example schema to a local file pattern. `yaml-language-server` is still a candidate route: this example neither installs, admits, nor verifies it.
+
 For a built-in catalog ID, global fields replace the corresponding catalog metadata. For a new ID, the complete route metadata is required even when the executable is already installed. A manual route has `autoInstall: false` and no internal recipe.
 
 Unknown keys, invalid types, malformed JSON, unsafe strings, and values outside the documented bounds invalidate the entire configuration layer instead of being ignored.
@@ -78,7 +106,7 @@ A trusted project remains reduction-only. It may:
 - set global `autoInstall` or `postEditDiagnostics` to `false`;
 - lower diagnostic timings and add directory names to the exclusion set.
 
-It cannot add servers, routes, commands, arguments, environment variables, initialization options, extensions, language IDs, roles, packages, URLs, or recipes. `false` and `offline` are sticky: a later layer cannot turn them back on or raise a reduced priority or diagnostic timing.
+It cannot add servers, routes, commands, arguments, environment variables, initialization options, settings, extensions, language IDs, roles, packages, URLs, or recipes. `false` and `offline` are sticky: a later layer cannot turn them back on or raise a reduced priority or diagnostic timing.
 
 The extension does not automatically import `pi-lsp.json`, `lsp.json`, editor settings, or any other extension's configuration. Automatic import could execute an unreviewed command or alter the trust boundary.
 
@@ -130,6 +158,7 @@ Standard proxy environment variables may be inherited by npm during an authorize
 | server `extensions` | required for a new ID | Non-empty extension array such as `.rs`. |
 | server `languageIds` | required for a new ID | Non-empty LSP language-ID array. |
 | server `roles` | required for a new ID | One or more of `diagnostics`, `semantic`, `mutation`. |
+| server `settings` | unset | Bounded JSON object served through `workspace/configuration`; global only; `__proto__`, `prototype` and `constructor` are rejected at any depth. |
 
 The built-in directory exclusions are `.git`, `.hg`, `.svn`, `node_modules`, `bower_components`, `vendor`, `dist`, `build`, `out`, `target`, `coverage`, `.nyc_output`, `.cache`, `.parcel-cache`, `.turbo`, `.next`, `.nuxt`, `tmp`, `temp`, `.tmp`, `.venv`, `venv`, `env`, `.env`, `__pycache__`, `.tox`, and `.gradle`.
 
