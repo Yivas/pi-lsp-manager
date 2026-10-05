@@ -23,9 +23,11 @@ The extension collects no telemetry or analytics. User-facing output and audit r
 
 Report an undisclosed vulnerability through [GitHub private vulnerability reporting](https://github.com/Yivas/pi-lsp-manager/security/advisories/new), not a public issue. Include a sanitized reproduction and remove credentials, source content, private paths, and active configuration values.
 
-## Development dependency audit
+## Dependency audits
 
-CI runs the full `npm audit --json` and fails on any finding except one documented, temporary development-only exception: the nested `brace-expansion@5.0.9` that the pinned `@earendil-works/pi-coding-agent@0.87.1` shrinkwrap forces, tracked in upstream issues [#5653](https://github.com/earendil-works/pi/issues/5653) (open, move off the shipped shrinkwrap) and [#7628](https://github.com/earendil-works/pi/issues/7628) (closed as no-action). The exception holds only while the lockfile, the installed manifests, and that shrinkwrap agree on the exact package, version, parent, and integrity; any other package, path, version, advisory, or production finding fails. The gate forces the development tree into the audit (`--include=dev`), so an `omit=dev` or `NODE_ENV=production` npm configuration cannot hide it and return a false clean result. It does not hide the installed version or claim a fix, and it is development-only: the published package ships no lockfile and its sole runtime dependency is `vscode-jsonrpc`. Remove the exception when an upstream release installs `brace-expansion` 5.0.12 or newer in both the lockfile and the installed tree; a clean report is only treated as a stale exception when the pinned version is really gone, and a clean report while it is still installed is rejected.
+The repository CI runs `npm run audit:check` against the root lockfile, including development dependencies (`npm audit --json --audit-level=low --include=dev`). The gate validates the report and severity counts, fails closed on command errors or malformed output, and rejects every reported vulnerability. There are no accepted exceptions; explicitly including dev dependencies prevents an `omit=dev` or `NODE_ENV=production` npm configuration from hiding findings.
+
+The wiki has its own manifest and lockfile and is audited separately from the repository root. A result for one tree does not imply the result for the other. Development-only packages in either audit are not thereby included in the published extension: the root package ships no lockfile and its sole runtime dependency is `vscode-jsonrpc`.
 
 ## Python installer trust perimeter (unreleased)
 

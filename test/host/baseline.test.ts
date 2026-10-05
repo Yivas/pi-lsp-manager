@@ -32,10 +32,18 @@ describe("Pi host baseline", () => {
 		) as {
 			engines: { node: string };
 			pi: { extensions: string[] };
+			devDependencies: {
+				"@earendil-works/pi-ai": string;
+				"@earendil-works/pi-coding-agent": string;
+			};
 		};
 		expect(meetsMinimumNodeVersion(process.versions.node)).toBe(true);
 		expect(manifest.engines.node).toBe(">=22.19.0");
 		expect(manifest.pi.extensions).toEqual(["./src/index.ts"]);
+		expect(manifest.devDependencies["@earendil-works/pi-ai"]).toBe("1.0.1");
+		expect(manifest.devDependencies["@earendil-works/pi-coding-agent"]).toBe(
+			"1.0.1",
+		);
 		expect(typeof getAgentDir).toBe("function");
 		expect(typeof CONFIG_DIR_NAME).toBe("string");
 		expect(typeof withFileMutationQueue).toBe("function");
