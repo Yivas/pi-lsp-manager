@@ -3,6 +3,7 @@ import {
 	type ChildProcess,
 	type SpawnOptions,
 } from "node:child_process";
+import { createServer, type ServerResponse } from "node:http";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -64,6 +65,156 @@ function trackSpawn(
 		children.push(record);
 		return child;
 	};
+}
+
+const LOOPBACK_SCHEMA_PATH = "/schema.json";
+// The tool must settle while the schema response stays withheld, so the race uses
+// this one bounded safety deadline instead of sleeping or polling. It only has to
+// cover the 1s cancellation drain plus owned-process termination.
+const CANCEL_SETTLE_DEADLINE_MS = 30_000;
+
+interface WithheldSchemaServer {
+	/** Loopback URL served by this owned server. */
+	url: string;
+	/** Resolves once a language server requested the known schema path. */
+	received: Promise<void>;
+	/** Completes the withheld response so later diagnostics can resolve the schema. */
+	release: () => void;
+	/** True once `release` ran; proves the response was still withheld before it. */
+	isReleased: () => boolean;
+	/** Releases and closes the owned server, leaving no socket behind. */
+	close: () => Promise<void>;
+}
+
+// Owns one ephemeral 127.0.0.1 HTTP server that serves a single schema path and
+// withholds that response until `release`. Every other request, including a
+// builtin meta-schema, is answered 404 so the server never proxies anything.
+// `received` resolves only after a valid path request, which proves the language
+// server already started and asked for the schema before the caller aborts.
+function startWithheldSchemaServer(
+	schemaText: string,
+): Promise<WithheldSchemaServer> {
+	return new Promise<WithheldSchemaServer>((resolveServer, rejectServer) => {
+		let markReceived: () => void = () => undefined;
+		const received = new Promise<void>((resolveReceived) => {
+			markReceived = resolveReceived;
+		});
+		let release: () => void = () => undefined;
+		const releaseGate = new Promise<void>((resolveRelease) => {
+			release = resolveRelease;
+		});
+		let released = false;
+		let captured: ServerResponse | undefined;
+		const server = createServer((request, response) => {
+			if (request.method !== "GET" || request.url !== LOOPBACK_SCHEMA_PATH) {
+				response.writeHead(404, { "content-type": "text/plain" });
+				response.end("not found");
+				return;
+			}
+			captured = response;
+			markReceived();
+			void releaseGate.then(() => {
+				response.writeHead(200, { "content-type": "application/json" });
+				response.end(schemaText);
+			});
+		});
+		server.once("error", rejectServer);
+		server.listen(0, "127.0.0.1", () => {
+			server.off("error", rejectServer);
+			const address = server.address();
+			if (!address || typeof address === "string") {
+				rejectServer(new Error("Loopback schema server has no port."));
+				return;
+			}
+			resolveServer({
+				url: `http://127.0.0.1:${address.port}${LOOPBACK_SCHEMA_PATH}`,
+				received,
+				release: () => {
+					released = true;
+					release();
+				},
+				isReleased: () => released,
+				close: async () => {
+					release();
+					captured?.destroy();
+					server.closeAllConnections();
+					await new Promise<void>((resolveClosed) =>
+						server.close(() => resolveClosed()),
+					);
+				},
+			});
+		});
+	});
+}
+
+// The diagnostics tool reports cancellation as a top-level failure whose
+// structured details carry the code, so a cancelled request never arrives as a
+// clean `files` entry. The batch loop rethrows cancellation before it can record
+// a per-file failure.
+function expectCancelledFailure(result: {
+	content: readonly { type: string; text?: string }[];
+	details: { code?: string; action?: string };
+}): void {
+	const text = result.content.find((item) => item.type === "text")?.text;
+	expect(text).toBe("cancelled: Retry the request.");
+	expect(result.details).toEqual({
+		code: "cancelled",
+		action: "Retry the request.",
+	});
+}
+
+// Aborts the pending diagnostics once the language server asked for the withheld
+// schema, then proves the tool settled while the response was still withheld.
+async function cancelWhileWithheld<T>(
+	pending: Promise<T>,
+	withheld: WithheldSchemaServer,
+	controller: AbortController,
+): Promise<T> {
+	// A server that never asks for the schema must fail with a named error instead
+	// of hanging until the test clock expires with the tool still pending.
+	let receiveTimer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		await Promise.race([
+			withheld.received,
+			new Promise<never>((_resolve, rejectTimeout) => {
+				receiveTimer = setTimeout(
+					() =>
+						rejectTimeout(
+							new Error("The loopback schema request was not observed."),
+						),
+					CANCEL_SETTLE_DEADLINE_MS,
+				);
+			}),
+		]);
+	} catch (error) {
+		// Abort first so the still-pending tool can settle, then observe it before
+		// reporting the named failure; otherwise its rejection stays unobserved.
+		controller.abort();
+		await pending.catch(() => undefined);
+		throw error;
+	} finally {
+		if (receiveTimer) clearTimeout(receiveTimer);
+	}
+	controller.abort();
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	let settled: boolean;
+	try {
+		settled = await Promise.race([
+			pending.then(() => true),
+			new Promise<boolean>((resolveDeadline) => {
+				timer = setTimeout(
+					() => resolveDeadline(false),
+					CANCEL_SETTLE_DEADLINE_MS,
+				);
+			}),
+		]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+	expect(settled).toBe(true);
+	expect(withheld.isReleased()).toBe(false);
+	// Await the real promise so a later rejection is never left unobserved.
+	return pending;
 }
 
 // The diagnostics tool reports per-server failures next to `files`, so a request
@@ -154,9 +305,13 @@ async function childrenClosed(
 describe.runIf(runJson)("JSON and JSONC language server", () => {
 	let workspace: string | undefined;
 	let pool: RuntimePool | undefined;
+	let withheld: WithheldSchemaServer | undefined;
 	const children: TrackedChild[] = [];
 
 	afterEach(async () => {
+		const ownedWithheld = withheld;
+		withheld = undefined;
+		if (ownedWithheld) await ownedWithheld.close();
 		let shutdownFailed = false;
 		let shutdownError: unknown;
 		try {
@@ -182,7 +337,7 @@ describe.runIf(runJson)("JSON and JSONC language server", () => {
 		if (shutdownFailed) throw shutdownError;
 	});
 
-	it("validates local JSON schemas and accepts JSONC", async () => {
+	it("validates local and remote JSON schemas, accepts JSONC, and cancels diagnostics while a schema response is withheld", async () => {
 		if (!jsonCli) throw new Error("Missing JSON_LSP_CLI path.");
 		workspace = await mkdtemp(join(tmpdir(), "pi-lsp-json-yaml-real-"));
 		const root = workspace;
@@ -198,19 +353,34 @@ describe.runIf(runJson)("JSON and JSONC language server", () => {
 			additionalProperties: false,
 		});
 		await writeFile(jsonSchema, schema, "utf8");
+		const withheldSchema = await startWithheldSchemaServer(schema);
+		withheld = withheldSchema;
 		const jsonInvalid = join(root, "invalid.json");
 		const jsonClean = join(root, "clean.json");
 		const jsoncClean = join(root, "clean.jsonc");
+		const jsonRemoteInvalid = join(root, "remote-invalid.json");
+		const jsonRemoteClean = join(root, "remote-clean.json");
 		// `"name": 42` is on LSP line 2 (0-based), so the tool reports line 3;
-		// `42` starts at character 10 (0-based).
+		// `42` starts at character 10 (0-based). The remote file keeps the same
+		// positions because the schema URL only lengthens line 1.
 		await writeFile(
 			jsonInvalid,
 			'{\n  "$schema": "./json-schema.json",\n  "name": 42\n}\n',
 			"utf8",
 		);
 		await writeFile(
+			jsonRemoteInvalid,
+			`{\n  "$schema": "${withheldSchema.url}",\n  "name": 42\n}\n`,
+			"utf8",
+		);
+		await writeFile(
 			jsonClean,
 			JSON.stringify({ $schema: "./json-schema.json", name: "valid" }),
+			"utf8",
+		);
+		await writeFile(
+			jsonRemoteClean,
+			JSON.stringify({ $schema: withheldSchema.url, name: "valid" }),
 			"utf8",
 		);
 		await writeFile(
@@ -305,15 +475,81 @@ describe.runIf(runJson)("JSON and JSONC language server", () => {
 			]);
 		}
 		expect(children).toHaveLength(1);
-	}, 60_000);
+
+		// The remote schema URL is served by the owned loopback server, which holds
+		// the response. The JSON server registers pull diagnostics when the client
+		// advertises `textDocument.diagnostic` (this client does), so aborting the
+		// tool cancels the JSON-RPC request; because the pull handler only observes
+		// its cancellation token after validation resolves, no response arrives
+		// inside the 1s drain, the transport is tainted and the owned child is
+		// evicted. So the exact cancelled result carries a top-level failure code.
+		const remoteController = new AbortController();
+		const cancelledResult = await cancelWhileWithheld(
+			diagnostics(
+				service,
+				ctx,
+				{ filePath: jsonRemoteInvalid, servers: [serverId] },
+				remoteController.signal,
+			),
+			withheldSchema,
+			remoteController,
+		);
+		expectCancelledFailure(cancelledResult);
+		// The tainted original child is already closed before any replacement runs.
+		expect(children).toHaveLength(1);
+		expect(await childrenClosed(children.slice(0, 1))).toBe(true);
+
+		// Release the withheld response after the tool settled; the replacement
+		// runtime then resolves the schema and reports real diagnostics.
+		withheldSchema.release();
+
+		const remoteInvalidResult = decodeDiagnostics(
+			await diagnostics(
+				service,
+				ctx,
+				{ filePath: jsonRemoteInvalid, servers: [serverId] },
+				undefined,
+			),
+		);
+		const remoteInvalidReports = remoteInvalidResult.files?.[0]?.servers.find(
+			(server) => server.serverId === serverId,
+		)?.diagnostics;
+		expectStringTypeErrorAt(remoteInvalidReports ?? [], {
+			line: 3,
+			character: 10,
+		});
+
+		const remoteCleanResult = decodeDiagnostics(
+			await diagnostics(
+				service,
+				ctx,
+				{ filePath: jsonRemoteClean, servers: [serverId] },
+				undefined,
+			),
+		);
+		expect(remoteCleanResult.files?.[0]?.servers).toEqual([
+			{ serverId, diagnostics: [] },
+		]);
+
+		// Exactly one replacement runtime is live and the evicted original stays
+		// closed, so the pool never reports two active servers for one root.
+		expect(children).toHaveLength(2);
+		expect(children[0]?.closed).toBe(true);
+		expect(children[1]?.closed).toBe(false);
+		expect(pool.activeServerIds()).toEqual([serverId]);
+	}, 90_000);
 });
 
 describe.runIf(runYaml)("YAML language server", () => {
 	let workspace: string | undefined;
 	let pool: RuntimePool | undefined;
+	let withheld: WithheldSchemaServer | undefined;
 	const children: TrackedChild[] = [];
 
 	afterEach(async () => {
+		const ownedWithheld = withheld;
+		withheld = undefined;
+		if (ownedWithheld) await ownedWithheld.close();
 		let shutdownFailed = false;
 		let shutdownError: unknown;
 		try {
@@ -339,28 +575,31 @@ describe.runIf(runYaml)("YAML language server", () => {
 		if (shutdownFailed) throw shutdownError;
 	});
 
-	it("serves local schema settings through workspace/configuration", async () => {
+	it("serves local and remote schema settings through workspace/configuration and cancels diagnostics while a schema response is withheld", async () => {
 		if (!yamlCli) throw new Error("Missing YAML_LSP_CLI path.");
 		workspace = await mkdtemp(join(tmpdir(), "pi-lsp-json-yaml-real-"));
 		const root = workspace;
 		const yamlSchema = join(root, "yaml-schema.json");
-		await writeFile(
-			yamlSchema,
-			JSON.stringify({
-				$schema: "http://json-schema.org/draft-07/schema#",
-				type: "object",
-				required: ["name"],
-				properties: { name: { type: "string" } },
-				additionalProperties: false,
-			}),
-			"utf8",
-		);
+		const schema = JSON.stringify({
+			$schema: "http://json-schema.org/draft-07/schema#",
+			type: "object",
+			required: ["name"],
+			properties: { name: { type: "string" } },
+			additionalProperties: false,
+		});
+		await writeFile(yamlSchema, schema, "utf8");
+		const withheldSchema = await startWithheldSchemaServer(schema);
+		withheld = withheldSchema;
 		const yamlInvalid = join(root, "invalid.yaml");
 		const yamlClean = join(root, "clean.yaml");
+		const yamlRemoteInvalid = join(root, "remote-invalid.yaml");
+		const yamlRemoteClean = join(root, "remote-clean.yaml");
 		// `name: 42` is on LSP line 0 (0-based), so the tool reports line 1;
-		// `42` starts at character 6 (0-based).
+		// `42` starts at character 6 (0-based). The remote file is identical.
 		await writeFile(yamlInvalid, "name: 42\n", "utf8");
+		await writeFile(yamlRemoteInvalid, "name: 42\n", "utf8");
 		await writeFile(yamlClean, "name: valid\n", "utf8");
+		await writeFile(yamlRemoteClean, "name: valid\n", "utf8");
 
 		// Settings, including `schemaStore.enable: false`, arrive through the real
 		// global-config loader. An owned agent directory keeps the user profile and
@@ -378,7 +617,15 @@ describe.runIf(runYaml)("YAML language server", () => {
 						settings: {
 							yaml: {
 								schemaStore: { enable: false },
-								schemas: { [pathToFileURL(yamlSchema).href]: "*.yaml" },
+								schemas: {
+									// The local schema applies only to its own two files, so it
+									// never combines with the remote association below.
+									[pathToFileURL(yamlSchema).href]: [
+										"invalid.yaml",
+										"clean.yaml",
+									],
+									[withheldSchema.url]: "remote*.yaml",
+								},
 							},
 						},
 					},
@@ -435,5 +682,60 @@ describe.runIf(runYaml)("YAML language server", () => {
 			{ serverId, diagnostics: [] },
 		]);
 		expect(children).toHaveLength(1);
-	}, 60_000);
+
+		// The YAML server advertises no pull-diagnostics capability, so the tool
+		// waits for a pushed publication and observes the abort locally. The child
+		// is never tainted: it stays the single owned runtime.
+		const remoteController = new AbortController();
+		const cancelledResult = await cancelWhileWithheld(
+			diagnostics(
+				service,
+				ctx,
+				{ filePath: yamlRemoteInvalid, servers: [serverId] },
+				remoteController.signal,
+			),
+			withheldSchema,
+			remoteController,
+		);
+		expectCancelledFailure(cancelledResult);
+		expect(children).toHaveLength(1);
+		expect(children[0]?.closed).toBe(false);
+
+		// Release the withheld response after the tool settled; the same runtime then
+		// resolves the schema and reports real diagnostics.
+		withheldSchema.release();
+
+		const remoteInvalidResult = decodeDiagnostics(
+			await diagnostics(
+				service,
+				ctx,
+				{ filePath: yamlRemoteInvalid, servers: [serverId] },
+				undefined,
+			),
+		);
+		const remoteInvalidReports = remoteInvalidResult.files?.[0]?.servers.find(
+			(server) => server.serverId === serverId,
+		)?.diagnostics;
+		expectStringTypeErrorAt(remoteInvalidReports ?? [], {
+			line: 1,
+			character: 6,
+		});
+
+		const remoteCleanResult = decodeDiagnostics(
+			await diagnostics(
+				service,
+				ctx,
+				{ filePath: yamlRemoteClean, servers: [serverId] },
+				undefined,
+			),
+		);
+		expect(remoteCleanResult.files?.[0]?.servers).toEqual([
+			{ serverId, diagnostics: [] },
+		]);
+
+		// One owned runtime, still healthy and never replaced after the cancel.
+		expect(children).toHaveLength(1);
+		expect(children[0]?.closed).toBe(false);
+		expect(pool.activeServerIds()).toEqual([serverId]);
+	}, 90_000);
 });
