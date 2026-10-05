@@ -121,3 +121,7 @@ jobs:
         run: npm test -- test/real-servers/json-yaml-language-servers.test.ts
         env:
           RUN_REAL_FORMATS: "1"
+      - name: Run the SDK-driven format scenario
+        run: npm test -- test/real-servers/formats-pi-sdk.test.ts
+        env:
+          RUN_REAL_FORMATS_SDK: "1"
